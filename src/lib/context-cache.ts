@@ -35,3 +35,11 @@ export function writeContextCache(userId: string, ctx: AppContext): void {
     // penyimpanan penuh atau diblokir: aplikasi tetap jalan tanpa cache
   }
 }
+
+export function removeContextCache(userId: string): void {
+  try {
+    localStorage.removeItem(cacheKey(userId));
+  } catch {
+    // penyimpanan diblokir: tidak ada yang dapat dihapus
+  }
+}

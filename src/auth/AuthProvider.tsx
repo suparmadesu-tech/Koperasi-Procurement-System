@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -11,7 +12,12 @@ import {
 } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { mapAuthError } from '../lib/auth-errors';
-import { readContextCache, writeContextCache, type AppContext } from '../lib/context-cache';
+import {
+  readContextCache,
+  removeContextCache,
+  writeContextCache,
+  type AppContext,
+} from '../lib/context-cache';
 import { clearLocalData } from '../lib/local-data';
 import type { Role } from '../lib/roles';
 import { configError, supabase } from '../lib/supabase';
@@ -55,7 +61,9 @@ async function resolveSession(
   client: SupabaseClient,
   session: Session | null,
   setState: Dispatch<SetStateAction<AuthState>>,
+  isCurrent: () => boolean,
 ): Promise<void> {
+  if (!isCurrent()) return;
   if (!session) {
     setState({ status: 'signed_out' });
     return;
@@ -65,9 +73,17 @@ async function resolveSession(
   if (cached) setState(readyState(user, cached));
   try {
     const fresh = await fetchContext(client, user.id);
+    if (!isCurrent()) return;
     writeContextCache(user.id, fresh);
     setState(readyState(user, fresh));
   } catch (e) {
+    if (!isCurrent()) return;
+    const code = e instanceof Error ? e.message : '';
+    if (code === 'NO_WORKSPACE' || code === 'BAD_ROLE') {
+      removeContextCache(user.id);
+      setState({ status: 'context_error', email: user.email, message: describeContextError(e) });
+      return;
+    }
     setState((prev) =>
       prev.status === 'ready' && prev.user.id === user.id
         ? prev
@@ -81,6 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     configError ? { status: 'config_error', missing: configError } : { status: 'loading' },
   );
 
+  const generation = useRef(0);
+
   useEffect(() => {
     const client = supabase;
     if (!client) return;
@@ -90,8 +108,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     const { data } = client.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') return;
+      const gen = ++generation.current;
       setTimeout(() => {
-        void resolveSession(client, session, guarded);
+        void resolveSession(
+          client,
+          session,
+          guarded,
+          () => active && generation.current === gen,
+        );
       }, 0);
     });
     return () => {
@@ -113,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    generation.current++;
     try {
       await supabase?.auth.signOut({ scope: 'local' });
     } catch {
@@ -124,9 +149,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const retry = useCallback(async () => {
     if (!supabase) return;
+    const gen = ++generation.current;
     setState({ status: 'loading' });
     const { data } = await supabase.auth.getSession();
-    await resolveSession(supabase, data.session, setState);
+    await resolveSession(supabase, data.session, setState, () => generation.current === gen);
   }, []);
 
   const value = useMemo(() => ({ state, signIn, signOut, retry }), [state, signIn, signOut, retry]);
