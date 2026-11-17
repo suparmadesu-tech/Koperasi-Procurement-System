@@ -1,21 +1,77 @@
-import { readEnv } from './lib/env';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import Layout from './components/Layout';
+import LogoutButton from './components/LogoutButton';
+import RequireRole from './components/RequireRole';
+import StatusScreen from './components/StatusScreen';
+import { btnPrimary } from './components/ui';
+import AdminArea from './pages/AdminArea';
+import Belanja from './pages/Belanja';
+import Daftar from './pages/Daftar';
+import Katalog from './pages/Katalog';
+import Login from './pages/Login';
+import Pengaturan from './pages/Pengaturan';
+import Riwayat from './pages/Riwayat';
+
+function Gate() {
+  const { state, retry } = useAuth();
+
+  switch (state.status) {
+    case 'loading':
+      return <StatusScreen title="KPS" message="Memuat..." busy />;
+    case 'config_error':
+      return (
+        <StatusScreen
+          title="Konfigurasi belum lengkap"
+          message={`Isi variabel berikut: ${state.missing.join(', ')}.`}
+          alert
+        />
+      );
+    case 'signed_out':
+      return <Login />;
+    case 'context_error':
+      return (
+        <StatusScreen title="Akun tidak dapat dibuka" message={state.message} alert>
+          <button type="button" className={btnPrimary} onClick={() => void retry()}>
+            Coba lagi
+          </button>
+          <LogoutButton />
+        </StatusScreen>
+      );
+    case 'ready':
+      return (
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Navigate to="/daftar" replace />} />
+            <Route path="/katalog" element={<Katalog />} />
+            <Route path="/daftar" element={<Daftar />} />
+            <Route path="/belanja" element={<Belanja />} />
+            <Route path="/riwayat" element={<Riwayat />} />
+            <Route path="/pengaturan" element={<Pengaturan />} />
+            <Route
+              path="/pengaturan/admin"
+              element={
+                <RequireRole role="admin">
+                  <AdminArea />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="*"
+              element={<p role="alert">Halaman tidak ditemukan.</p>}
+            />
+          </Routes>
+        </Layout>
+      );
+  }
+}
 
 export default function App() {
-  const env = readEnv(import.meta.env);
-
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-5 py-10">
-      <h1 className="text-2xl font-semibold">KPS</h1>
-      <p className="text-base">Koperasi Procurement System. Kerangka proyek sudah berjalan.</p>
-      {env.ok ? (
-        <p className="rounded-md bg-white px-4 py-3 text-sm ring-1 ring-black/10">
-          Konfigurasi Supabase terbaca. Halaman masuk dibuat di Bagian 2.
-        </p>
-      ) : (
-        <p role="alert" className="rounded-md bg-white px-4 py-3 text-sm ring-1 ring-red-700/40">
-          Konfigurasi belum lengkap. Isi variabel berikut: {env.missing.join(', ')}.
-        </p>
-      )}
-    </main>
+    <BrowserRouter>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
