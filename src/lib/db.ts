@@ -3,6 +3,11 @@ import { LOCAL_DB_NAME } from './constants';
 import type { QueuedOp } from './queue-types';
 
 export class KpsDb extends Dexie {
+  // kps:katalog-v2: tabel katalog, tabel ops tidak berubah
+  declare categories: import('dexie').Table<import('../features/katalog/types').CategoryRow, string>
+  declare units: import('dexie').Table<import('../features/katalog/types').UnitRow, string>
+  declare products: import('dexie').Table<import('../features/katalog/types').ProductRow, string>
+
   // "declare" agar bidang kelas tidak menimpa tabel buatan Dexie
   declare ops: Table<QueuedOp, string>;
 
@@ -10,6 +15,11 @@ export class KpsDb extends Dexie {
     super(LOCAL_DB_NAME);
     this.version(1).stores({
       ops: 'op_id, status, user_id, created_at, depends_on, [user_id+status]',
+    })
+    this.version(2).stores({
+      categories: 'id, workspace_id, name',
+      units: 'id, workspace_id, name',
+      products: 'id, workspace_id, category_id, unit_id, name',
     });
   }
 }
