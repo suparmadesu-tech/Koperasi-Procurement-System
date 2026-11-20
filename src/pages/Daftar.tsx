@@ -1,5 +1,8 @@
-import Placeholder from './Placeholder';
+import { useAuth } from '../auth/AuthProvider';
+import { DaftarView } from '../features/daftar/DaftarView';
 
 export default function Daftar() {
-  return <Placeholder title="Daftar" note="Daftar kebutuhan belum tersedia. Dibuat di Tahap 3." />;
+  const { state } = useAuth();
+  if (state.status !== 'ready') return null;
+  return <DaftarView workspaceId={state.workspace.id} />;
 }
