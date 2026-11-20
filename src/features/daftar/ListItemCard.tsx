@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { formatRupiah } from '../../lib/money'
 import type { SyncStatus } from '../katalog/catalogSync'
 import { formatQuantity } from './format'
@@ -31,10 +31,12 @@ export function ListItemCard({
   row,
   photoUrl,
   catalogStatus,
+  children,
 }: {
   row: ListViewRow
   photoUrl: string | undefined
   catalogStatus: SyncStatus
+  children?: ReactNode
 }) {
   return (
     <li className="flex gap-3 rounded-md bg-white p-3 ring-1 ring-black/20">
@@ -64,6 +66,7 @@ export function ListItemCard({
         ) : (
           <p className="text-sm">Harga belum tersedia</p>
         )}
+        {children}
       </div>
     </li>
   )
