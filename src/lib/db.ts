@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { LOCAL_DB_NAME } from './constants';
 import type { QueuedOp } from './queue-types';
 import type { ListItemRow } from '../features/daftar/types';
+import type { SessionItemRow, SessionRow } from '../features/belanja/types';
 
 export class KpsDb extends Dexie {
   // kps:katalog-v2: tabel katalog, tabel ops tidak berubah
@@ -12,6 +13,8 @@ export class KpsDb extends Dexie {
   // "declare" agar bidang kelas tidak menimpa tabel buatan Dexie
   declare ops: Table<QueuedOp, string>;
   declare listItems: Table<ListItemRow, string>;
+  declare sessions: Table<SessionRow, string>;
+  declare sessionItems: Table<SessionItemRow, string>;
 
   constructor() {
     super(LOCAL_DB_NAME);
@@ -25,6 +28,10 @@ export class KpsDb extends Dexie {
     });
     this.version(3).stores({
       listItems: 'id, workspace_id, shopping_list_id, product_id',
+    });
+    this.version(4).stores({
+      sessions: 'id, workspace_id, status',
+      sessionItems: 'id, workspace_id, session_id',
     });
   }
 }

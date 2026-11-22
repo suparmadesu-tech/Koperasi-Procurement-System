@@ -10,7 +10,7 @@ export type OpOk = Extract<ListOpResult, { ok: true }>
 export function useListOp(workspaceId: string) {
   const runner = useMemo(
     () =>
-      createAttemptRunner(
+      createAttemptRunner<ListOpType>(
         (type, payload, options) => submitListOp(workspaceId, type, payload, options),
         () => crypto.randomUUID(),
       ),

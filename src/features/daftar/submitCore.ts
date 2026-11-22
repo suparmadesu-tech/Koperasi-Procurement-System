@@ -1,6 +1,6 @@
 import { classifyOutcome, normalizeSendError, type SendResult } from '../../lib/sync-errors'
 import { messageForCode, messageForSendError } from './errors'
-import type { ListOpResult, ListOpType } from './types'
+import type { ListOpResult } from './types'
 
 export interface RpcReply {
   data: unknown
@@ -18,6 +18,9 @@ export interface SubmitDeps {
   refreshSession: () => Promise<boolean>
   isOnline: () => boolean
   newId: () => string
+  // Opsional: pesan khusus konteks (misalnya sesi belanja).
+  messageFor?: (code: string | null | undefined, serverMessage?: string) => string
+  offlineMessage?: string
 }
 
 export interface SubmitOptions {
@@ -44,11 +47,12 @@ function toSendResult(reply: RpcReply): SendResult {
 export function createSubmitter(deps: SubmitDeps) {
   return async function submit(
     workspaceId: string,
-    opType: ListOpType,
+    opType: string,
     payload: Record<string, unknown>,
     options: SubmitOptions = {},
   ): Promise<ListOpResult> {
     const opId = options.opId ?? deps.newId()
+    const say = deps.messageFor ?? messageForCode
     const fail = (code: string, message: string, retryable: boolean): ListOpResult => ({
       ok: false,
       opId,
@@ -58,7 +62,11 @@ export function createSubmitter(deps: SubmitDeps) {
     })
 
     if (!deps.isOnline()) {
-      return fail('OFFLINE', 'Anda sedang offline. Menulis daftar memerlukan koneksi internet.', false)
+      return fail(
+        'OFFLINE',
+        deps.offlineMessage ?? 'Anda sedang offline. Menulis daftar memerlukan koneksi internet.',
+        false,
+      )
     }
 
     let refreshed = false
@@ -88,14 +96,14 @@ export function createSubmitter(deps: SubmitDeps) {
           const msg = bodyOf(reply)?.message
           return fail(
             action.code ?? 'KPS_REJECTED',
-            messageForCode(action.code, typeof msg === 'string' ? msg : undefined),
+            say(action.code, typeof msg === 'string' ? msg : undefined),
             false,
           )
         }
         case 'fail_invalid':
-          return fail(action.code, messageForCode(action.code), false)
+          return fail(action.code, say(action.code), false)
         case 'fail_forbidden':
-          return fail('KPS_FORBIDDEN', messageForCode('KPS_FORBIDDEN'), false)
+          return fail('KPS_FORBIDDEN', say('KPS_FORBIDDEN'), false)
         case 'refresh_and_resend': {
           const ok = await deps.refreshSession()
           if (!ok) {
