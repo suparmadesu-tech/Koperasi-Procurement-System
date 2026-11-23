@@ -4,7 +4,7 @@ import type { SyncStatus } from '../katalog/catalogSync'
 import { formatQuantity } from './format'
 import type { ListViewRow } from './listView'
 
-function ItemPhoto({ url, name }: { url: string | undefined; name: string }) {
+export function ItemPhoto({ url, name }: { url: string | undefined; name: string }) {
   const [failed, setFailed] = useState(false)
   if (!url || failed) {
     return (

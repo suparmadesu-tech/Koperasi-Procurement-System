@@ -1,0 +1,176 @@
+]633;E;for f in $(find src -iname 'Belanja*.tsx' -o -iname 'Layout.tsx' -o -iname 'useDaftar*.ts*' -o -iname 'format.ts' -o -iname 'listView.ts');def0c2f6-b1ec-44a9-bcdf-9f58fb7d8c4b]633;C=== src/pages/Belanja.tsx
+import Placeholder from './Placeholder';
+
+export default function Belanja() {
+  return <Placeholder title="Belanja" note="Sesi belanja belum tersedia. Dibuat di Tahap 4." />;
+}
+=== src/features/daftar/format.ts
+// "1.5" menjadi "1,5"; ribuan dipisah titik.
+export function formatQuantity(q: string): string {
+  const [int, frac] = q.split('.')
+  const grouped = (int ?? '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return frac ? `${grouped},${frac}` : grouped
+}
+
+// Zona waktu tampilan Asia/Jakarta (FR-039).
+export function formatTimeJakarta(iso: string): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Jakarta',
+  }).format(new Date(iso))
+}
+=== src/features/daftar/listView.ts
+import { subtotal, sumSubtotals } from '../../lib/money'
+import type { CatalogData } from '../katalog/types'
+import type { ListItemRow } from './types'
+
+export interface ListViewRow {
+  id: string
+  kind: 'catalog' | 'manual'
+  productId: string | null
+  name: string
+  unitName: string
+  quantity: string
+  note: string | null
+  photoPath: string | null
+  // Harga katalog saat ini; null untuk barang manual dan barang katalog tanpa harga (FR-018, FR-019).
+  price: string | null
+  subtotal: string | null
+  archived: boolean
+  allowFraction: boolean
+  // Produk belum ada di katalog lokal.
+  unresolved: boolean
+}
+
+export interface ListSummary {
+  total: string
+  pricedCount: number
+  unpricedCount: number
+  itemCount: number
+  incomplete: boolean
+}
+
+export interface ListView {
+  rows: ListViewRow[]
+  summary: ListSummary
+}
+
+type Money = ReturnType<typeof subtotal>
+
+function safeSubtotal(price: string | null, quantity: string): Money {
+  if (price === null) return null
+  try {
+    return subtotal(price, quantity)
+  } catch {
+    return null
+  }
+}
+
+// FR-046
+export const unpricedLabel = (n: number): string => `Belum mencakup ${n} barang tanpa harga`
+
+export function buildListView(items: ListItemRow[], catalog: CatalogData): ListView {
+  const products = new Map(catalog.products.map((p) => [p.id, p]))
+  const units = new Map(catalog.units.map((u) => [u.id, u]))
+  const subs: Money[] = []
+
+  const rows: ListViewRow[] = items.map((it) => {
+    if (it.product_id === null) {
+      subs.push(null)
+      return {
+        id: it.id,
+        kind: 'manual',
+        productId: null,
+        name: it.manual_name ?? '',
+        unitName: it.manual_unit ?? '',
+        quantity: it.quantity_needed,
+        note: it.note,
+        photoPath: it.photo_path,
+        price: null,
+        subtotal: null,
+        archived: false,
+        allowFraction: true,
+        unresolved: false,
+      }
+    }
+    const p = products.get(it.product_id)
+    const unit = p ? units.get(p.unit_id) : undefined
+    const sub = safeSubtotal(p?.price ?? null, it.quantity_needed)
+    subs.push(sub)
+    return {
+      id: it.id,
+      kind: 'catalog',
+      productId: it.product_id,
+      name: p ? p.name : 'Barang tidak ditemukan di katalog lokal',
+      unitName: unit?.name ?? '',
+      quantity: it.quantity_needed,
+      note: it.note,
+      photoPath: p?.photo_path ?? null,
+      price: p?.price ?? null,
+      subtotal: sub === null ? null : sub.toFixed(0),
+      archived: p?.is_archived ?? false,
+      allowFraction: unit?.allow_fraction ?? false,
+      unresolved: p === undefined,
+    }
+  })
+
+  const pricedCount = subs.filter((s) => s !== null).length
+  const unpricedCount = rows.length - pricedCount
+  rows.sort((a, b) => a.name.localeCompare(b.name, 'id') || a.id.localeCompare(b.id))
+
+  return {
+    rows,
+    summary: {
+      total: sumSubtotals(subs).toFixed(0),
+      pricedCount,
+      unpricedCount,
+      itemCount: rows.length,
+      incomplete: unpricedCount > 0,
+    },
+  }
+}
+=== src/components/Layout.tsx
+import type { ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
+import { NAV_ITEMS, filterByRole } from '../lib/roles';
+
+export default function Layout({ children }: { children: ReactNode }) {
+  const { state } = useAuth();
+  if (state.status !== 'ready') return null;
+  const items = filterByRole(NAV_ITEMS, state.role);
+
+   return (
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-black/10 bg-paper px-4 py-3">
+        <span className="text-lg font-semibold">KPS</span>
+        <span className="truncate text-sm text-ink/75">{state.workspace.name}</span>
+      </header>
+      <main className="mx-auto w-full max-w-md flex-1 px-4 pb-28 pt-5">{children}</main>
+      <nav
+        aria-label="Menu utama"
+        className="fixed inset-x-0 bottom-0 z-10 border-t border-black/10 bg-white pb-[env(safe-area-inset-bottom)]"
+      >
+        <ul className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+          {items.map((item) => (
+            <li key={item.to}>
+              <NavLink
+                to={item.to}
+                className={({ isActive }) =>
+                  `flex min-h-14 items-center justify-center border-t-2 px-1 text-xs ${
+                    isActive
+                      ? 'border-brand font-semibold text-brand'
+                      : 'border-transparent text-ink/75 hover:text-ink'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </div>
+  );
+}

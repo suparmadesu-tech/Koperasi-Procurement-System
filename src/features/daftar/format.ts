@@ -10,6 +10,7 @@ export function formatTimeJakarta(iso: string): string {
   return new Intl.DateTimeFormat('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
     timeZone: 'Asia/Jakarta',
   }).format(new Date(iso))
 }
