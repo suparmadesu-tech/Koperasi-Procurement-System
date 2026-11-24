@@ -1,0 +1,1290 @@
+=== src/features/belanja/SessionItemCard.tsx
+import { formatRupiah } from '../../lib/money'
+import { formatQuantity } from '../daftar/format'
+import { ItemPhoto } from '../daftar/ListItemCard'
+import type { SessionItemView } from './sessionView'
+
+export function SessionItemCard({ item, photoUrl }: { item: SessionItemView; photoUrl: string | undefined }) {
+  const unit = item.unitName ? ` ${item.unitName}` : ''
+  return (
+    <li className="flex gap-3 rounded-md bg-white p-3 ring-1 ring-black/20">
+      {item.photoPath ? <ItemPhoto key={photoUrl ?? 'tanpa-url'} url={photoUrl} name={item.name} /> : null}
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="break-words font-semibold">{item.name}</p>
+        <p className="text-sm">
+          Dibutuhkan {formatQuantity(item.needed)}
+          {unit}
+          {item.actual !== null ? ` · Aktual ${formatQuantity(item.actual)}${unit}` : ''}
+        </p>
+        {item.note ? <p className="whitespace-pre-line break-words text-sm">Catatan: {item.note}</p> : null}
+        {item.price === null ? (
+          <p className="text-sm">Harga belum tersedia</p>
+        ) : (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+            <span>
+              {formatRupiah(item.price)} {item.priceIsActual ? '(harga aktual)' : '(harga awal sesi)'}
+            </span>
+            {item.subtotal !== null ? (
+              <span className="font-semibold">{formatRupiah(item.subtotal)}</span>
+            ) : (
+              <span className="text-xs text-ink/75">Belum masuk total</span>
+            )}
+          </div>
+        )}
+        {item.direct ? <p className="text-xs text-ink/75">Ditambahkan langsung ke sesi</p> : null}
+      </div>
+    </li>
+  )
+}
+=== src/features/belanja/ActiveSession.tsx
+import { formatRupiah } from '../../lib/money'
+import { unpricedLabel } from '../daftar/listView'
+import { formatDateTimeJakarta } from './format'
+import { SessionActions } from './SessionActions'
+import { SessionItemCard } from './SessionItemCard'
+import type { ActiveView } from './sessionView'
+import type { SessionItemRow } from './types'
+
+export function ActiveSession({
+  view,
+  photoUrls,
+  workspaceId,
+  sessionId,
+  items,
+}: {
+  view: ActiveView
+  photoUrls: Record<string, string>
+  workspaceId: string
+  sessionId: string
+  items: SessionItemRow[]
+}) {
+  const { running, frozen } = view
+  const runningEmpty = running.pricedCount + running.unpricedCount === 0
+  return (
+    <div className="space-y-4">
+      <section aria-labelledby="ringkasan-sesi" className="space-y-4 rounded-md bg-white p-4 ring-1 ring-black/20">
+        <div>
+          <h2 id="ringkasan-sesi" className="font-semibold">
+            Sesi belanja aktif
+          </h2>
+          <p className="text-sm text-ink/75">Dimulai {formatDateTimeJakarta(view.startedAt)} WIB</p>
+        </div>
+        <dl className="space-y-4">
+          <div className="space-y-1">
+            <dt className="text-sm text-ink/75">Total berjalan (barang di keranjang dan sudah dibeli)</dt>
+            <dd className="text-2xl font-semibold">{formatRupiah(running.total)}</dd>
+            {running.incomplete ? (
+              <dd className="text-sm">
+                <span className="font-semibold">Total berjalan belum lengkap.</span> {unpricedLabel(running.unpricedCount)}.
+              </dd>
+            ) : null}
+            {runningEmpty ? <dd className="text-sm">Belum ada barang di keranjang.</dd> : null}
+            <dd className="text-xs text-ink/75">Memakai harga aktual bila diisi, jika tidak harga awal sesi.</dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-sm text-ink/75">Estimasi awal (dibekukan saat sesi dimulai)</dt>
+            <dd className="text-lg font-semibold">
+              {frozen.total === null ? 'Belum tersedia' : formatRupiah(frozen.total)}
+            </dd>
+            {frozen.unpricedCount !== null && frozen.unpricedCount > 0 ? (
+              <dd className="text-sm">{unpricedLabel(frozen.unpricedCount)}.</dd>
+            ) : null}
+            <dd className="text-xs text-ink/75">
+              Tidak berubah walau harga katalog diperbarui atau barang ditambahkan ke sesi.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <SessionActions workspaceId={workspaceId} sessionId={sessionId} items={items} />
+
+      {view.itemCount === 0 ? (
+        <p className="text-sm">Sesi ini belum memiliki barang.</p>
+      ) : (
+        view.groups.map((g) => (
+          <section key={g.status} aria-labelledby={`grup-${g.status}`} className="space-y-3">
+            <h2 id={`grup-${g.status}`} className="font-semibold">
+              {g.label} ({g.items.length})
+            </h2>
+            <ul className="space-y-3">
+              {g.items.map((i) => (
+                <SessionItemCard key={i.id} item={i} photoUrl={i.photoPath ? photoUrls[i.photoPath] : undefined} />
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
+    </div>
+  )
+}
+=== src/features/belanja/sessionView.ts
+import {
+  effectivePriceOf,
+  isLiveItem,
+  itemSubtotal,
+  returnPreview,
+  runningTotals,
+  statusCounts,
+  type Totals,
+} from './sessionMath'
+import { ITEM_STATUSES, type ItemStatus, type SessionItemRow, type SessionRow } from './types'
+
+export const STATUS_LABEL: Record<ItemStatus, string> = {
+  to_buy: 'Belum dibeli',
+  in_cart: 'Di keranjang',
+  purchased: 'Sudah dibeli',
+}
+
+export interface SessionItemView {
+  id: string
+  name: string
+  unitName: string
+  status: ItemStatus
+  needed: string
+  actual: string | null
+  // Harga efektif (FR-053); null berarti tanpa harga dan tidak pernah tampil Rp 0 (FR-019).
+  price: string | null
+  priceIsActual: boolean
+  subtotal: string | null
+  note: string | null
+  photoPath: string | null
+  // Ditambahkan langsung ke sesi (source_item_id kosong, FR-052).
+  direct: boolean
+}
+
+export interface StatusGroup {
+  status: ItemStatus
+  label: string
+  items: SessionItemView[]
+}
+
+// Nilai beku dari server, tidak dihitung ulang di klien (FR-024, FR-050).
+export interface FrozenStart {
+  total: string | null
+  unpricedCount: number | null
+}
+
+export interface ActiveView {
+  startedAt: string
+  itemCount: number
+  groups: StatusGroup[]
+  running: Totals
+  frozen: FrozenStart
+}
+
+export interface CompletedView {
+  endedAt: string | null
+  totalActual: string | null
+  unpricedPurchased: number | null
+  estimate: FrozenStart
+  purchasedCount: number
+  returnCount: number
+}
+
+const byName = (a: SessionItemRow, b: SessionItemRow) =>
+  a.product_name_snapshot.localeCompare(b.product_name_snapshot, 'id') || a.id.localeCompare(b.id)
+
+function toItemView(i: SessionItemRow): SessionItemView {
+  return {
+    id: i.id,
+    name: i.product_name_snapshot,
+    unitName: i.unit_snapshot,
+    status: i.status,
+    needed: i.quantity_needed,
+    actual: i.quantity_actual,
+    price: effectivePriceOf(i),
+    priceIsActual: i.price_actual !== null,
+    subtotal: itemSubtotal(i),
+    note: i.note_snapshot,
+    photoPath: i.photo_path_snapshot,
+    direct: i.source_item_id === null,
+  }
+}
+
+export function buildActiveView(session: SessionRow, items: SessionItemRow[]): ActiveView {
+  const live = items.filter(isLiveItem).sort(byName)
+  const groups = ITEM_STATUSES.map((status) => ({
+    status,
+    label: STATUS_LABEL[status],
+    items: live.filter((i) => i.status === status).map(toItemView),
+  })).filter((g) => g.items.length > 0)
+
+  return {
+    startedAt: session.started_at,
+    itemCount: live.length,
+    groups,
+    running: runningTotals(live),
+    frozen: { total: session.total_estimate, unpricedCount: session.unpriced_items_at_start },
+  }
+}
+
+// Hanya sesi completed yang punya ringkasan; sesi cancelled tidak punya layar sendiri (FR-040).
+export function buildCompletedView(session: SessionRow | null, items: SessionItemRow[]): CompletedView | null {
+  if (session === null || session.status !== 'completed') return null
+  const live = items.filter(isLiveItem)
+  return {
+    endedAt: session.ended_at,
+    totalActual: session.total_actual,
+    unpricedPurchased: session.unpriced_items_purchased,
+    estimate: { total: session.total_estimate, unpricedCount: session.unpriced_items_at_start },
+    purchasedCount: statusCounts(live).purchased,
+    returnCount: returnPreview(live).count,
+  }
+}
+=== src/features/belanja/sessionMath.ts
+import { D, effectivePrice, parseAmount, subtotal, sumSubtotals } from '../../lib/money'
+import type { ItemStatus, SessionItemRow } from './types'
+
+export type MathItem = Pick<
+  SessionItemRow,
+  'status' | 'price_actual' | 'price_snapshot' | 'quantity_actual' | 'quantity_needed' | 'deleted_at' | 'source_item_id'
+>
+
+// Satu hitungan FR-050: jumlah dalam baris barang, bukan kuantitas.
+export interface Totals {
+  total: string
+  pricedCount: number
+  unpricedCount: number
+  incomplete: boolean
+}
+
+type Money = ReturnType<typeof subtotal>
+
+function safe<T>(fn: () => T): T | null {
+  try {
+    return fn()
+  } catch {
+    return null
+  }
+}
+
+// Barang yang dihapus pengguna tidak dihitung di mana pun (FR-048, BR-033).
+export const isLiveItem = (i: Pick<MathItem, 'deleted_at'>): boolean => i.deleted_at === null
+
+// FR-053: price_actual bila terisi (0 sah), jika tidak price_snapshot.
+const actualPrice = (i: MathItem): Money => safe(() => effectivePrice(i.price_actual, i.price_snapshot))
+const snapshotPrice = (i: MathItem): Money => safe(() => parseAmount(i.price_snapshot))
+
+export function effectivePriceOf(i: MathItem): string | null {
+  const p = actualPrice(i)
+  return p === null ? null : p.toFixed(0)
+}
+
+// FR-036: pembulatan(harga efektif x jumlah aktual). Null bila harga atau jumlah aktual kosong.
+export function itemSubtotal(i: MathItem): string | null {
+  const s = safe(() => subtotal(actualPrice(i), i.quantity_actual))
+  return s === null ? null : s.toFixed(0)
+}
+
+function build(rows: Array<{ price: Money; qty: string | null }>): Totals {
+  const subs = rows.map((r) => safe(() => subtotal(r.price, r.qty)))
+  const unpricedCount = rows.filter((r) => r.price === null).length
+  return {
+    total: sumSubtotals(subs).toFixed(0),
+    pricedCount: rows.length - unpricedCount,
+    unpricedCount,
+    incomplete: unpricedCount > 0,
+  }
+}
+
+// Total berjalan: in_cart dan purchased, harga efektif x jumlah aktual. Dihitung saat ditampilkan.
+export function runningTotals(items: MathItem[]): Totals {
+  return build(
+    items
+      .filter((i) => isLiveItem(i) && (i.status === 'in_cart' || i.status === 'purchased'))
+      .map((i) => ({ price: actualPrice(i), qty: i.quantity_actual })),
+  )
+}
+
+// Total aktual: hanya purchased. Pratinjau sebelum sesi selesai; setelah selesai pakai nilai beku di server.
+export function actualTotals(items: MathItem[]): Totals {
+  return build(
+    items
+      .filter((i) => isLiveItem(i) && i.status === 'purchased')
+      .map((i) => ({ price: actualPrice(i), qty: i.quantity_actual })),
+  )
+}
+
+// Estimasi awal: price_snapshot x jumlah kebutuhan, hanya barang dari daftar.
+// Hanya pemeriksaan silang; tampilan memakai nilai beku dari server (total_estimate, unpriced_items_at_start).
+export function startTotals(items: MathItem[]): Totals {
+  return build(
+    items
+      .filter((i) => isLiveItem(i) && i.source_item_id !== null)
+      .map((i) => ({ price: snapshotPrice(i), qty: i.quantity_needed })),
+  )
+}
+
+export function statusCounts(items: Array<Pick<MathItem, 'status' | 'deleted_at'>>): Record<ItemStatus, number> {
+  const out: Record<ItemStatus, number> = { to_buy: 0, in_cart: 0, purchased: 0 }
+  for (const i of items) if (isLiveItem(i)) out[i.status] += 1
+  return out
+}
+
+// 3.4.1: Q_sisa = maks(0, dibutuhkan - terbeli); terbeli hanya untuk status purchased.
+export function remainderOf(i: MathItem): string {
+  const needed = new D(i.quantity_needed)
+  const bought = i.status === 'purchased' && i.quantity_actual !== null ? new D(i.quantity_actual) : new D(0)
+  const r = needed.minus(bought)
+  return r.gt(0) ? r.toString() : '0'
+}
+
+// Pratinjau jumlah barang yang kembali ke daftar saat sesi diakhiri atau dibatalkan.
+export function returnPreview(items: MathItem[]): { count: number } {
+  return { count: items.filter((i) => isLiveItem(i) && new D(remainderOf(i)).gt(0)).length }
+}
+=== src/features/belanja/sessionValidation.ts
+import { LIST_TEXT_LIMITS } from '../daftar/types'
+import { parseQuantityInput, type QuantityResult } from '../daftar/validation'
+import type { FormResult } from '../katalog/validation'
+
+// Harga aktual: kosong berarti mengosongkan (value null), 0 sah, Rupiah bulat (FR-053).
+export { parsePriceInput as parsePriceActualInput } from '../katalog/moneyAdapter'
+// Nama, satuan, jumlah, dan catatan barang manual di sesi memakai batas yang sama dengan daftar (BR-039).
+export { validateManualItemForm as validateSessionManualForm } from '../daftar/validation'
+// Jumlah kebutuhan barang yang ditambahkan langsung: lebih dari 0.
+export { parseQuantityInput as parseNeededQuantityInput } from '../daftar/validation'
+
+const charCount = (s: string) => Array.from(s).length
+
+// Pecahan mengikuti allow_fraction_snapshot; server tetap penentu. Jumlah aktual 0 diterima (quantity_actual tidak negatif).
+export function parseActualQuantityInput(text: string, opts: { allowFraction: boolean }): QuantityResult {
+  const raw = text.trim().replace(',', '.')
+  if (/^(0+(\.0*)?|\.0+)$/.test(raw)) return { ok: true, value: '0' }
+  return parseQuantityInput(text, opts)
+}
+
+export function validateSessionCatalogForm(input: {
+  productId: string
+  quantityText: string
+  note: string
+  allowFraction: boolean
+}): FormResult<{ productId: string; quantity: string; note: string | null }, 'productId' | 'quantity' | 'note'> {
+  const errors: Partial<Record<'productId' | 'quantity' | 'note', string>> = {}
+  if (!input.productId) errors.productId = 'Pilih barang dari katalog.'
+  const note = input.note.trim()
+  if (charCount(note) > LIST_TEXT_LIMITS.note) errors.note = `Catatan maksimal ${LIST_TEXT_LIMITS.note} karakter.`
+  const q = parseQuantityInput(input.quantityText, { allowFraction: input.allowFraction })
+  if (!q.ok) errors.quantity = q.message
+  if (Object.keys(errors).length > 0 || !q.ok) return { ok: false, errors }
+  return { ok: true, value: { productId: input.productId, quantity: q.value, note: note === '' ? null : note } }
+}
+=== src/features/belanja/sessionPayloads.ts
+import { quantityToWire } from '../daftar/rows'
+import { priceToWire } from '../katalog/rows'
+import type { ItemStatus } from './types'
+
+type Payload = Record<string, unknown>
+
+// Kunci mengikuti KPS-DB-Bagian-3, bagian 4 dan 5. Untuk operasi lewat kps_apply_op,
+// session_id dan product_id berikut dipetakan ke p_session_id dan p_product_id oleh toRpcCall.
+export const startSessionPayload = (): Payload => ({})
+export const endSessionPayload = (sessionId: string): Payload => ({ session_id: sessionId })
+export const cancelSessionPayload = (sessionId: string): Payload => ({ session_id: sessionId })
+
+export function addCatalogToSessionPayload(
+  sessionId: string,
+  productId: string,
+  quantity: string,
+  note: string | null,
+): Payload {
+  const p: Payload = { session_id: sessionId, product_id: productId, quantity: quantityToWire(quantity) }
+  if (note !== null) p.note = note
+  return p
+}
+
+export function addManualToSessionPayload(input: {
+  sessionId: string
+  id: string
+  name: string
+  unit: string
+  quantity: string
+  note: string | null
+  photoPath: string | null
+}): Payload {
+  const p: Payload = {
+    session_id: input.sessionId,
+    id: input.id,
+    name: input.name,
+    unit: input.unit,
+    quantity: quantityToWire(input.quantity),
+  }
+  if (input.note !== null) p.note = input.note
+  if (input.photoPath !== null) p.photo_path = input.photoPath
+  return p
+}
+
+export const setStatusPayload = (itemId: string, status: ItemStatus): Payload => ({ item_id: itemId, status })
+
+export const setQuantityActualPayload = (itemId: string, quantity: string): Payload => ({
+  item_id: itemId,
+  quantity: quantityToWire(quantity),
+})
+
+// null mengosongkan harga aktual; 0 sah (FR-053).
+export const setPriceActualPayload = (itemId: string, price: string | null): Payload => ({
+  item_id: itemId,
+  price: priceToWire(price),
+})
+
+export const setQuantityNeededPayload = (itemId: string, quantity: string): Payload => ({
+  item_id: itemId,
+  quantity: quantityToWire(quantity),
+})
+
+export const deleteItemPayload = (itemId: string): Payload => ({ item_id: itemId })
+
+export const setSessionPhotoPayload = (itemId: string, photoPath: string): Payload => ({
+  item_id: itemId,
+  photo_path: photoPath,
+})
+=== src/features/belanja/submitSessionOp.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { requestListRefresh } from '../daftar/listSync'
+import { createSubmitter, type SubmitOptions } from '../daftar/submitCore'
+import type { ListOpResult } from '../daftar/types'
+import { isOnline } from '../katalog/catalogStore'
+import { refreshSupabaseSession, sbClient } from './rpcDeps'
+import { sessionMessageForCode } from './sessionErrors'
+import { toRpcCall, type SessionOpType } from './sessionRpc'
+import { requestSessionRefresh } from './sessionSync'
+
+export type SessionOpResult = ListOpResult
+
+const core = createSubmitter({
+  rpc: async (args) => {
+    const call = toRpcCall(args)
+    const res = await (sbClient as SupabaseClient).rpc(call.fn, call.args)
+    return { data: res.data as unknown, error: res.error as unknown, status: res.status }
+  },
+  refreshSession: refreshSupabaseSession,
+  isOnline,
+  newId: () => crypto.randomUUID(),
+  messageFor: sessionMessageForCode,
+  offlineMessage: 'Anda sedang offline. Perubahan sesi belanja memerlukan koneksi internet.',
+})
+
+const RETURNS_TO_LIST: readonly SessionOpType[] = ['kps_start_session', 'kps_end_session', 'kps_cancel_session']
+const NO_REFRESH_CODES = ['OFFLINE', 'NO_CLIENT', 'SESSION_EXPIRED']
+
+// Titik tunggal penulisan sesi. Antarmukanya sama dengan submitListOp; Tahap 6 mengganti isinya
+// menjadi antrean offline untuk operasi yang boleh offline. Gunakan opId yang sama untuk kirim ulang.
+export function submitSessionOp(
+  workspaceId: string,
+  opType: SessionOpType,
+  payload: Record<string, unknown>,
+  options: SubmitOptions = {},
+): Promise<SessionOpResult> {
+  if (!sbClient) {
+    return Promise.resolve({
+      ok: false,
+      opId: options.opId ?? crypto.randomUUID(),
+      code: 'NO_CLIENT',
+      message: 'Supabase belum dikonfigurasi.',
+      retryable: false,
+    })
+  }
+  return core(workspaceId, opType, payload, options).then((r) => {
+    if (r.ok) {
+      requestSessionRefresh()
+      // Mulai, akhiri, dan batalkan memindahkan barang antara daftar dan sesi.
+      if (RETURNS_TO_LIST.includes(opType)) requestListRefresh()
+    } else if (!r.retryable && !NO_REFRESH_CODES.includes(r.code)) {
+      // Ditolak server: ambil keadaan terbaru supaya layar sama dengan server.
+      requestSessionRefresh()
+    }
+    return r
+  })
+}
+=== src/features/belanja/sessionErrors.ts
+import { messageForCode } from '../daftar/errors'
+
+// Kode khusus sesi. Kode lain jatuh ke tabel pesan daftar.
+const SESSION_MESSAGES: Record<string, string> = {
+  KPS_SESSION_ALREADY_ACTIVE: 'Sudah ada sesi belanja yang aktif. Muat ulang untuk melihatnya.',
+  KPS_SESSION_NOT_ACTIVE:
+    'Sesi ini sudah selesai atau dibatalkan, jadi tidak dapat diubah lagi. Perubahan Anda tidak tersimpan.',
+  KPS_ITEM_DELETED: 'Barang ini sudah dihapus dari sesi.',
+  KPS_TARGET_NOT_FOUND: 'Sesi atau barang tidak ditemukan. Muat ulang untuk melihat keadaan terbaru.',
+  KPS_SNAPSHOT_IMMUTABLE:
+    'Perubahan ini tidak diizinkan: data awal barang dari daftar tidak dapat diubah, jumlah kebutuhan dan penghapusan hanya untuk barang yang ditambahkan langsung ke sesi, dan foto hanya dapat dipasang sekali.',
+  KPS_QUANTITY_ACTUAL_STATE: 'Jumlah aktual hanya dapat diisi untuk barang yang sudah masuk keranjang atau dibeli.',
+  KPS_INVALID_PRICE: 'Harga harus Rupiah bulat dan tidak negatif.',
+  KPS_SESSION_FROZEN: 'Sesi ini sudah selesai atau dibatalkan, jadi tidak dapat diubah lagi.',
+  KPS_SOURCE_NOT_MOVED: 'Data sesi tidak konsisten. Muat ulang lalu coba lagi.',
+  KPS_TOTAL_MISMATCH: 'Total sesi tidak cocok dengan hitungan server. Muat ulang lalu coba lagi.',
+}
+
+export function sessionMessageForCode(code: string | null | undefined, serverMessage?: string): string {
+  if (code) {
+    const own = SESSION_MESSAGES[code]
+    if (own) return own
+  }
+  return messageForCode(code, serverMessage)
+}
+=== src/features/belanja/sessionFlow.ts
+import { createAttemptRunner } from '../daftar/attemptRunner'
+import type { SubmitOptions } from '../daftar/submitCore'
+import type { ListOpResult } from '../daftar/types'
+import type { EndPlan, StartPlan } from './sessionGuards'
+import type { SessionOpType } from './sessionRpc'
+
+export type FlowAction = 'start' | 'end' | 'cancel'
+
+// Hasil penjaga sebelum RPC: diblokir (tanpa RPC) atau lanjut ke konfirmasi, dengan peringatan opsional.
+export type GuardOutcome =
+  | { kind: 'blocked'; message: string }
+  | { kind: 'ok'; note: string; warning: string | null }
+
+export const startGuard =
+  (check: () => Promise<StartPlan>) =>
+  async (): Promise<GuardOutcome> => {
+    const p = await check()
+    return p.allowed ? { kind: 'ok', note: p.message, warning: null } : { kind: 'blocked', message: p.message }
+  }
+
+// Perubahan yang belum tersimpan tidak memblokir akhir sesi, tetapi wajib konfirmasi kedua (FR-028, SYNC-012).
+export const endGuard =
+  (check: () => Promise<EndPlan>) =>
+  async (): Promise<GuardOutcome> => {
+    const p = await check()
+    return p.needsConfirm ? { kind: 'ok', note: '', warning: p.message } : { kind: 'ok', note: p.message, warning: null }
+  }
+
+export const noGuard = async (): Promise<GuardOutcome> => ({ kind: 'ok', note: '', warning: null })
+
+export type FlowPhase = 'idle' | 'checking' | 'confirm' | 'confirm_warning' | 'sending' | 'failed' | 'done'
+export type FlowFailureKind = 'guard' | 'offline' | 'network' | 'rejected' | 'unexpected'
+
+export interface FlowFailure {
+  kind: FlowFailureKind
+  code: string
+  message: string
+  // true: ada percobaan yang menunggu kirim ulang dengan op_id sama, atau dihentikan pengguna.
+  retryable: boolean
+}
+
+export interface FlowState {
+  phase: FlowPhase
+  // Catatan di dialog pertama (misalnya pengingat perangkat lain).
+  note: string
+  // Peringatan untuk konfirmasi kedua; null bila tidak perlu.
+  warning: string | null
+  failure: FlowFailure | null
+  result: Record<string, unknown> | null
+}
+
+export type SettledOutcome = { ok: true; data: Record<string, unknown> } | { ok: false; failure: FlowFailure }
+
+export interface FlowConfig {
+  opType: SessionOpType
+  payload: () => Record<string, unknown>
+  guard: () => Promise<GuardOutcome>
+  // Mulai sesi memeriksa antrean sekali lagi tepat sebelum kirim (FR-045).
+  recheckBeforeSend: boolean
+  submit: (type: SessionOpType, payload: Record<string, unknown>, options: SubmitOptions) => Promise<ListOpResult>
+  isOnline: () => boolean
+  newId: () => string
+  onDiscard?: () => void
+  onSettled?: (outcome: SettledOutcome) => void
+}
+
+const OFFLINE_MESSAGE = 'Anda sedang offline. Perubahan sesi belanja memerlukan koneksi internet.'
+const UNEXPECTED_MESSAGE = 'Terjadi galat tak terduga. Coba lagi.'
+const INITIAL: FlowState = { phase: 'idle', note: '', warning: null, failure: null, result: null }
+
+// Pengendali alur tanpa React: kunci double-submit, kirim ulang dengan op_id sama (SYNC-004),
+// dan pembedaan ditolak server dari gagal jaringan (SYNC-020). Status tidak "tersimpan" sebelum jawaban server (SYNC-006).
+export function createSessionFlow(cfg: FlowConfig) {
+  const runner = createAttemptRunner<SessionOpType>(cfg.submit, cfg.newId)
+  let state: FlowState = INITIAL
+  const listeners = new Set<() => void>()
+
+  const set = (next: FlowState) => {
+    state = next
+    listeners.forEach((l) => l())
+  }
+  const busy = () => state.phase === 'checking' || state.phase === 'sending'
+
+  function fail(failure: FlowFailure) {
+    set({ ...state, phase: 'failed', failure, result: null })
+    cfg.onSettled?.({ ok: false, failure })
+  }
+
+  const unexpected = (): FlowFailure => ({
+    kind: 'unexpected',
+    code: 'UNEXPECTED',
+    message: UNEXPECTED_MESSAGE,
+    retryable: runner.hasPending(),
+  })
+
+  function kindOf(r: Extract<ListOpResult, { ok: false }>): FlowFailureKind {
+    if (r.retryable) return 'network'
+    return r.code === 'OFFLINE' || r.code === 'NO_CLIENT' ? 'offline' : 'rejected'
+  }
+
+  // Fase 'sending' dipasang sebelum await pertama, jadi klik ganda berikutnya langsung ditolak.
+  async function send(mode: 'run' | 'retry'): Promise<void> {
+    set({ ...state, phase: 'sending', failure: null })
+    try {
+      if (cfg.recheckBeforeSend) {
+        const g = await cfg.guard()
+        if (g.kind === 'blocked') {
+          fail({ kind: 'guard', code: 'BLOCKED', message: g.message, retryable: runner.hasPending() })
+          return
+        }
+      }
+      const r = mode === 'run' ? await runner.run(cfg.opType, cfg.payload()) : await runner.retry()
+      if (r === null) {
+        set(INITIAL)
+        return
+      }
+      if (r.ok) {
+        set({ ...state, phase: 'done', failure: null, result: r.data })
+        cfg.onSettled?.({ ok: true, data: r.data })
+        return
+      }
+      fail({ kind: kindOf(r), code: r.code, message: r.message, retryable: r.retryable })
+    } catch {
+      fail(unexpected())
+    }
+  }
+
+  async function begin(): Promise<void> {
+    const p = state.phase
+    if (p === 'checking' || p === 'sending' || p === 'confirm' || p === 'confirm_warning') return
+    // Masih ada percobaan menunggu: gunakan retry atau hentikan, jangan membuat op_id baru.
+    if (p === 'failed' && runner.hasPending()) return
+    if (!cfg.isOnline()) {
+      fail({ kind: 'offline', code: 'OFFLINE', message: OFFLINE_MESSAGE, retryable: false })
+      return
+    }
+    set({ ...INITIAL, phase: 'checking' })
+    let g: GuardOutcome
+    try {
+      g = await cfg.guard()
+    } catch {
+      fail(unexpected())
+      return
+    }
+    if (g.kind === 'blocked') {
+      fail({ kind: 'guard', code: 'BLOCKED', message: g.message, retryable: false })
+      return
+    }
+    set({ ...INITIAL, phase: 'confirm', note: g.note, warning: g.warning })
+  }
+
+  async function confirm(): Promise<void> {
+    if (state.phase === 'confirm') {
+      if (state.warning !== null) {
+        set({ ...state, phase: 'confirm_warning' })
+        return
+      }
+      await send('run')
+      return
+    }
+    if (state.phase === 'confirm_warning') await send('run')
+  }
+
+  async function retry(): Promise<void> {
+    if (state.phase !== 'failed' || !runner.hasPending()) return
+    await send('retry')
+  }
+
+  function dismiss(): void {
+    if (busy()) return
+    if (runner.hasPending()) {
+      runner.discard()
+      cfg.onDiscard?.()
+    }
+    set(INITIAL)
+  }
+
+  return {
+    getState: (): FlowState => state,
+    subscribe: (listener: () => void): (() => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    begin,
+    confirm,
+    retry,
+    dismiss,
+    hasPending: (): boolean => runner.hasPending(),
+  }
+}
+
+export type SessionFlow = ReturnType<typeof createSessionFlow>
+=== src/features/belanja/useSessionFlow.ts
+import { useMemo, useSyncExternalStore } from 'react'
+import { useCallback } from 'react'
+import { isOnline } from '../katalog/catalogStore'
+import { clearFlowNotice, flowNoticeFor, setFlowNotice } from './flowNotice'
+import { createSessionFlow, endGuard, noGuard, startGuard, type FlowAction } from './sessionFlow'
+import { checkEndLive, checkStartLive } from './sessionGuardsLive'
+import { cancelSessionPayload, endSessionPayload, startSessionPayload } from './sessionPayloads'
+import type { SessionOpType } from './sessionRpc'
+import { requestSessionRefresh } from './sessionSync'
+import { submitSessionOp } from './submitSessionOp'
+
+const OP: Record<FlowAction, SessionOpType> = {
+  start: 'kps_start_session',
+  end: 'kps_end_session',
+  cancel: 'kps_cancel_session',
+}
+
+function requireId(id: string | null): string {
+  if (id === null) throw new Error('sessionId diperlukan')
+  return id
+}
+
+// Menghubungkan pengendali alur murni dengan pengirim sesi yang sudah ada. Tidak ada pola kirim baru.
+export function useSessionFlow(workspaceId: string, action: FlowAction, sessionId: string | null) {
+  const flow = useMemo(
+    () =>
+      createSessionFlow({
+        opType: OP[action],
+        payload: () =>
+          action === 'start'
+            ? startSessionPayload()
+            : action === 'end'
+              ? endSessionPayload(requireId(sessionId))
+              : cancelSessionPayload(requireId(sessionId)),
+        guard: action === 'start' ? startGuard(checkStartLive) : action === 'end' ? endGuard(checkEndLive) : noGuard,
+        recheckBeforeSend: action === 'start',
+        submit: (type, payload, options) => submitSessionOp(workspaceId, type, payload, options),
+        isOnline,
+        newId: () => crypto.randomUUID(),
+        // Percobaan dihentikan: hasilnya tidak diketahui, jadi layar disegarkan dari server.
+        onDiscard: requestSessionRefresh,
+        // Hanya hasil yang dinilai server yang dibawa ke spanduk halaman, karena layar dapat berpindah.
+        onSettled: (o) => {
+          if (o.ok) setFlowNotice(flowNoticeFor(action, { ok: true, data: o.data }))
+          else if (o.failure.kind === 'rejected') {
+            setFlowNotice(flowNoticeFor(action, { ok: false, message: o.failure.message }))
+          }
+        },
+      }),
+    [workspaceId, action, sessionId],
+  )
+  const state = useSyncExternalStore(flow.subscribe, flow.getState, flow.getState)
+  const begin = useCallback(() => {
+    clearFlowNotice()
+    return flow.begin()
+  }, [flow])
+  return { flow, state, begin }
+}
+=== src/features/belanja/FlowFailure.tsx
+import { btnSecondary } from '../../components/ui'
+import type { FlowState, SessionFlow } from './sessionFlow'
+
+// Galat lokal alur: diblokir penjaga, offline, jaringan, atau tak terduga. Penolakan server tampil di spanduk halaman.
+export function FlowFailure({ flow, state }: { flow: SessionFlow; state: FlowState }) {
+  const f = state.failure
+  if (state.phase !== 'failed' || f === null || f.kind === 'rejected') return null
+  return (
+    <div role="alert" className="space-y-2 rounded-md bg-white p-3 text-sm text-red-900 ring-1 ring-red-800/60">
+      <p className="break-words">{f.message}</p>
+      {f.retryable ? (
+        <>
+          <p>
+            Belum ada konfirmasi dari server, jadi perubahan ini mungkin sudah atau belum tersimpan. Mengirim ulang aman
+            dan tidak menggandakan hasil.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnSecondary} onClick={() => void flow.retry()}>
+              Coba lagi
+            </button>
+            <button type="button" className={btnSecondary} onClick={() => flow.dismiss()}>
+              Hentikan percobaan
+            </button>
+          </div>
+          <p className="text-xs">Setelah dihentikan, layar disegarkan dari server untuk melihat hasil sebenarnya.</p>
+        </>
+      ) : (
+        <button type="button" className={btnSecondary} onClick={() => flow.dismiss()}>
+          Tutup
+        </button>
+      )}
+    </div>
+  )
+}
+=== src/features/belanja/flowNotice.ts
+import type { FlowAction } from './sessionFlow'
+
+export interface FlowNotice {
+  tone: 'info' | 'error'
+  text: string
+}
+
+export type FlowOutcome = { ok: true; data: Record<string, unknown> } | { ok: false; message: string }
+
+function count(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  return Array.isArray(v) ? v.length : null
+}
+
+// Pesan sukses hanya setelah jawaban server diterima (SYNC-006).
+export function flowNoticeFor(action: FlowAction, outcome: FlowOutcome): FlowNotice {
+  if (!outcome.ok) return { tone: 'error', text: outcome.message }
+  if (action === 'start') {
+    const n = count(outcome.data.item_count)
+    return {
+      tone: 'info',
+      text: n === null ? 'Sesi belanja dimulai di server.' : `Sesi belanja dimulai di server dengan ${n} barang.`,
+    }
+  }
+  if (action === 'end') {
+    const n = count(outcome.data.returned_items)
+    return {
+      tone: 'info',
+      text:
+        n === null
+          ? 'Sesi belanja diakhiri di server.'
+          : `Sesi belanja diakhiri di server. ${n} barang dikembalikan ke daftar kebutuhan.`,
+    }
+  }
+  return {
+    tone: 'info',
+    text: 'Sesi belanja dibatalkan di server. Semua barang dikembalikan ke daftar kebutuhan.',
+  }
+}
+
+// Disimpan di luar komponen supaya pesan bertahan saat layar berpindah antara sesi aktif dan tanpa sesi.
+let current: FlowNotice | null = null
+const listeners = new Set<() => void>()
+
+export const getFlowNotice = (): FlowNotice | null => current
+
+export function setFlowNotice(next: FlowNotice | null): void {
+  current = next
+  listeners.forEach((l) => l())
+}
+
+export const clearFlowNotice = (): void => setFlowNotice(null)
+
+export function subscribeFlowNotice(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+=== src/features/belanja/types.ts
+export type SessionStatus = 'active' | 'completed' | 'cancelled'
+export type ItemStatus = 'to_buy' | 'in_cart' | 'purchased'
+export const ITEM_STATUSES: readonly ItemStatus[] = ['to_buy', 'in_cart', 'purchased']
+
+// Uang dan kuantitas disimpan lokal sebagai string desimal, bukan float (FR-038).
+export interface SessionRow {
+  id: string
+  workspace_id: string
+  status: SessionStatus
+  started_by: string | null
+  started_at: string
+  ended_by: string | null
+  ended_at: string | null
+  // Dibekukan saat sesi dimulai (FR-024, FR-050).
+  total_estimate: string | null
+  unpriced_items_at_start: number | null
+  // Dibekukan saat sesi selesai; kosong untuk sesi aktif dan batal.
+  total_actual: string | null
+  unpriced_items_purchased: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerSession extends Omit<SessionRow, 'total_estimate' | 'total_actual'> {
+  total_estimate: number | string | null
+  total_actual: number | string | null
+}
+
+export interface SessionItemRow {
+  id: string
+  session_id: string
+  workspace_id: string
+  // Kosong untuk barang yang ditambahkan langsung ke sesi (FR-052).
+  source_item_id: string | null
+  product_id: string | null
+  product_name_snapshot: string
+  photo_path_snapshot: string | null
+  unit_snapshot: string
+  unit_id_snapshot: string | null
+  allow_fraction_snapshot: boolean
+  note_snapshot: string | null
+  price_snapshot: string | null
+  price_actual: string | null
+  quantity_needed: string
+  // Kosong tepat bila status to_buy.
+  quantity_actual: string | null
+  status: ItemStatus
+  // Penghapusan oleh pengguna; hanya untuk barang yang ditambahkan langsung (FR-048).
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerSessionItem
+  extends Omit<SessionItemRow, 'price_snapshot' | 'price_actual' | 'quantity_needed' | 'quantity_actual'> {
+  price_snapshot: number | string | null
+  price_actual: number | string | null
+  quantity_needed: number | string
+  quantity_actual: number | string | null
+}
+
+export interface SessionData {
+  sessions: SessionRow[]
+  items: SessionItemRow[]
+}
+=== src/features/belanja/format.ts
+// Tanggal dan jam Asia/Jakarta dengan jam 24 (FR-039).
+export function formatDateTimeJakarta(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '-'
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'Asia/Jakarta',
+  }).format(d)
+}
+=== src/features/daftar/EditableItemCard.tsx
+import { useRef, useState, type ChangeEvent } from 'react'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { btnPrimary, btnSecondary } from '../../components/ui'
+import type { SyncStatus } from '../katalog/catalogSync'
+import { formatQuantity } from './format'
+import { ListItemCard } from './ListItemCard'
+import type { ListViewRow } from './listView'
+import { OpNotice } from './OpNotice'
+import { clearPendingPhoto, setPendingPhoto, usePendingPhoto } from './pendingPhotos'
+import { deletePayload, setPhotoPayload, setQuantityPayload } from './payloads'
+import { photoDeps } from './photoDeps'
+import { preparePhoto, uploadPrepared, type PhotoPrep } from './photoFlow'
+import { TextField } from './TextField'
+import { useListOp } from './useListOp'
+import { parseQuantityInput } from './validation'
+
+export function EditableItemCard({
+  row,
+  photoUrl,
+  catalogStatus,
+  workspaceId,
+  online,
+  onFeedback,
+}: {
+  row: ListViewRow
+  photoUrl: string | undefined
+  catalogStatus: SyncStatus
+  workspaceId: string
+  online: boolean
+  onFeedback: (message: string) => void
+}) {
+  const op = useListOp(workspaceId)
+  const pendingPhoto = usePendingPhoto(row.id)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false)
+  const [qtyText, setQtyText] = useState('')
+  const [qtyError, setQtyError] = useState<string | undefined>(undefined)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoMsg, setPhotoMsg] = useState<string | null>(null)
+
+  const blocked = op.busy || photoBusy || op.pending || !online
+  const unit = row.unitName ? ` ${row.unitName}` : ''
+  const canAttachPhoto = row.kind === 'manual' && !row.photoPath
+
+  function startEdit() {
+    setQtyText(row.quantity.replace('.', ','))
+    setQtyError(undefined)
+    setEditing(true)
+  }
+
+  function saveQuantity() {
+    const q = parseQuantityInput(qtyText, { allowFraction: row.allowFraction })
+    if (!q.ok) {
+      setQtyError(q.message)
+      return
+    }
+    setQtyError(undefined)
+    if (q.value === row.quantity) {
+      setEditing(false)
+      return
+    }
+    void op.run('list_set_quantity', setQuantityPayload(row.id, q.value), () => {
+      setEditing(false)
+      onFeedback(`Jumlah ${row.name} diubah menjadi ${formatQuantity(q.value)}${unit}.`)
+    })
+  }
+
+  function remove() {
+    setConfirmDelete(false)
+    void op.run('list_delete', deletePayload(row.id), () => onFeedback(`${row.name} dihapus dari daftar.`))
+  }
+
+  async function attach(prep: PhotoPrep) {
+    if (prep.kind === 'invalid') {
+      setPhotoMsg(prep.message)
+      return
+    }
+    if (prep.kind === 'upload_failed') {
+      setPendingPhoto(row.id, { blob: prep.blob, mime: prep.mime })
+      setPhotoMsg(`${prep.message} Foto disimpan sementara di perangkat ini sampai halaman dimuat ulang.`)
+      return
+    }
+    if (prep.kind !== 'ready') return
+    await op.run('list_set_photo', setPhotoPayload(row.id, prep.path), () => {
+      clearPendingPhoto(row.id)
+      onFeedback(`Foto ${row.name} dipasang.`)
+    })
+  }
+
+  async function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null
+    e.target.value = ''
+    if (!file) return
+    setPhotoBusy(true)
+    setPhotoMsg(null)
+    const prep = await preparePhoto(photoDeps, workspaceId, file)
+    setPhotoBusy(false)
+    await attach(prep)
+  }
+
+  async function retryStoredPhoto() {
+    if (!pendingPhoto) return
+    setPhotoBusy(true)
+    setPhotoMsg(null)
+    const prep = await uploadPrepared(photoDeps, workspaceId, pendingPhoto.blob, pendingPhoto.mime)
+    setPhotoBusy(false)
+    await attach(prep)
+  }
+
+  return (
+    <ListItemCard row={row} photoUrl={photoUrl} catalogStatus={catalogStatus}>
+      {editing ? (
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault()
+            saveQuantity()
+          }}
+          className="space-y-2 pt-1"
+        >
+          <TextField
+            id={`jumlah-${row.id}`}
+            label="Jumlah baru"
+            value={qtyText}
+            onChange={setQtyText}
+            error={qtyError}
+            inputMode={row.allowFraction ? 'decimal' : 'numeric'}
+            hint={row.allowFraction ? 'Boleh berpecahan, maksimal 3 angka di belakang koma.' : 'Satuan ini hanya menerima bilangan bulat.'}
+            readOnly={op.busy || op.pending}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className={btnPrimary} disabled={op.busy || op.pending || !online}>
+              {op.busy ? 'Menyimpan...' : 'Simpan'}
+            </button>
+            <button type="button" className={btnSecondary} onClick={() => setEditing(false)} disabled={op.busy || op.pending}>
+              Batal
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button type="button" className={btnSecondary} onClick={startEdit} disabled={blocked}>
+            Ubah jumlah
+          </button>
+          <button type="button" className={btnSecondary} onClick={() => setConfirmDelete(true)} disabled={blocked}>
+            Hapus
+          </button>
+          {canAttachPhoto ? (
+            pendingPhoto ? (
+              <button type="button" className={btnSecondary} onClick={() => void retryStoredPhoto()} disabled={blocked}>
+                {photoBusy ? 'Mengunggah...' : 'Coba unggah foto lagi'}
+              </button>
+            ) : (
+              <button type="button" className={btnSecondary} onClick={() => fileRef.current?.click()} disabled={blocked}>
+                {photoBusy ? 'Memproses foto...' : 'Tambah foto'}
+              </button>
+            )
+          ) : null}
+        </div>
+      )}
+      <OpNotice error={op.error} pending={op.pending} busy={op.busy} onRetry={() => void op.retry()} onDiscard={op.discard} />
+      {photoMsg ? (
+        <p role="alert" className="text-sm text-red-900">
+          {photoMsg}
+        </p>
+      ) : null}
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void onPick(e)} />
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Hapus barang?"
+        message={`Hapus "${row.name}" dari daftar kebutuhan? Anda dapat menambahkannya lagi nanti.`}
+        confirmLabel="Hapus"
+        cancelLabel="Batal"
+        onConfirm={remove}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    </ListItemCard>
+  )
+}
+=== src/features/daftar/useListOp.ts
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { createAttemptRunner } from './attemptRunner'
+import { requestListRefresh } from './listSync'
+import { submitListOp } from './submitListOp'
+import type { ListOpResult, ListOpType } from './types'
+
+export type OpOk = Extract<ListOpResult, { ok: true }>
+
+// Satu operasi pada satu waktu per pemakai hook. Gagal retryable disimpan untuk dikirim ulang dengan op_id yang sama.
+export function useListOp(workspaceId: string) {
+  const runner = useMemo(
+    () =>
+      createAttemptRunner<ListOpType>(
+        (type, payload, options) => submitListOp(workspaceId, type, payload, options),
+        () => crypto.randomUUID(),
+      ),
+    [workspaceId],
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const after = useRef<((r: OpOk) => void) | null>(null)
+
+  const finish = useCallback(
+    (r: ListOpResult | null): ListOpResult | null => {
+      setBusy(false)
+      setPending(runner.hasPending())
+      if (r === null) return r
+      setError(r.ok ? null : r.message)
+      // Ditolak server: ambil data terbaru supaya layar sama dengan server.
+      if (!r.ok && !r.retryable && r.code !== 'OFFLINE' && r.code !== 'NO_CLIENT') requestListRefresh()
+      return r
+    },
+    [runner],
+  )
+
+  const run = useCallback(
+    async (type: ListOpType, payload: Record<string, unknown>, onOk: (r: OpOk) => void) => {
+      after.current = onOk
+      setBusy(true)
+      setError(null)
+      const r = finish(await runner.run(type, payload))
+      if (r && r.ok) onOk(r)
+      return r
+    },
+    [runner, finish],
+  )
+
+  const retry = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    const r = finish(await runner.retry())
+    if (r && r.ok) after.current?.(r)
+    return r
+  }, [runner, finish])
+
+  const discard = useCallback(() => {
+    runner.discard()
+    setPending(false)
+    setError(null)
+    requestListRefresh()
+  }, [runner])
+
+  return { busy, error, pending, run, retry, discard }
+}
+=== src/features/daftar/attemptRunner.ts
+import type { SubmitOptions } from './submitCore'
+import type { ListOpResult } from './types'
+
+type Payload = Record<string, unknown>
+type Submit<T extends string> = (type: T, payload: Payload, options: SubmitOptions) => Promise<ListOpResult>
+interface Attempt<T extends string> {
+  opId: string
+  type: T
+  payload: Payload
+}
+
+// Satu percobaan yang gagal dengan retryable disimpan, lalu dikirim ulang dengan opId dan payload yang sama.
+export function createAttemptRunner<T extends string = string>(submit: Submit<T>, newId: () => string) {
+  let attempt: Attempt<T> | null = null
+
+  async function send(a: Attempt<T>): Promise<ListOpResult> {
+    const r = await submit(a.type, a.payload, { opId: a.opId })
+    attempt = !r.ok && r.retryable ? a : null
+    return r
+  }
+
+  return {
+    run: (type: T, payload: Payload): Promise<ListOpResult> => send({ opId: newId(), type, payload }),
+    retry: async (): Promise<ListOpResult | null> => (attempt ? send(attempt) : null),
+    discard: (): void => {
+      attempt = null
+    },
+    hasPending: (): boolean => attempt !== null,
+  }
+}
+=== src/components/ConfirmDialog.tsx
+import { useEffect, useRef } from 'react';
+import { btnPrimary, btnSecondary } from './ui';
+
+type Props = {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+export default function ConfirmDialog(props: Props) {
+  const { open, title, message, confirmLabel, cancelLabel, onConfirm, onCancel } = props;
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="confirm-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+      className="w-[calc(100%-2rem)] max-w-sm rounded-lg bg-white p-5 text-ink backdrop:bg-black/50"
+    >
+      <h2 id="confirm-title" className="text-lg font-semibold">
+        {title}
+      </h2>
+      <p className="mt-2 text-base">{message}</p>
+      <div className="mt-5 flex flex-col gap-3">
+        <button type="button" className={btnSecondary} onClick={onCancel} autoFocus>
+          {cancelLabel}
+        </button>
+        <button type="button" className={btnPrimary} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    </dialog>
+  );
+}
+=== src/components/ui.ts
+const base =
+  'inline-flex min-h-12 cursor-pointer items-center justify-center rounded-md px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-60';
+
+export const btnPrimary = `${base} bg-brand text-white hover:bg-brand-dark active:bg-brand-dark`;
+export const btnSecondary = `${base} bg-white text-ink ring-1 ring-black/25 hover:bg-black/5 active:bg-black/10`;
+export const inputClass =
+  'min-h-12 w-full rounded-md bg-white px-3 text-base ring-1 ring-black/30 placeholder:text-ink/50';
