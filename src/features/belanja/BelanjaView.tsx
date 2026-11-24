@@ -4,6 +4,7 @@ import { formatTimeJakarta } from '../daftar/format'
 import { usePhotoUrls } from '../daftar/photoUrls'
 import type { SyncState } from '../katalog/catalogSync'
 import { ActiveSession } from './ActiveSession'
+import { FlowNoticeBanner } from './FlowNoticeBanner'
 import { NoSessionView } from './NoSessionView'
 import { buildActiveView, buildCompletedView } from './sessionView'
 import { useSessionState } from './useSessions'
@@ -69,6 +70,8 @@ export function BelanjaView({ workspaceId }: { workspaceId: string }) {
         </button>
       </div>
 
+      <FlowNoticeBanner />
+
       {readError !== null ? (
         <Notice alert>
           <p>Data sesi tidak dapat dibaca dari penyimpanan perangkat: {readError}</p>
@@ -98,8 +101,14 @@ export function BelanjaView({ workspaceId }: { workspaceId: string }) {
                 ? 'Belum dapat memeriksa sesi belanja di server. Sesi aktif mungkin ada. Sambungkan internet lalu muat ulang.'
                 : 'Memeriksa sesi belanja di server...'}
             </p>
-          ) : activeView ? (
-            <ActiveSession view={activeView} photoUrls={photoUrls} />
+          ) : activeView && state.active ? (
+            <ActiveSession
+              view={activeView}
+              photoUrls={photoUrls}
+              workspaceId={workspaceId}
+              sessionId={state.active.id}
+              items={state.activeItems}
+            />
           ) : (
             <NoSessionView workspaceId={workspaceId} completed={completed} />
           )}

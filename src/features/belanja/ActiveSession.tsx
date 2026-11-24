@@ -1,10 +1,24 @@
 import { formatRupiah } from '../../lib/money'
 import { unpricedLabel } from '../daftar/listView'
 import { formatDateTimeJakarta } from './format'
+import { SessionActions } from './SessionActions'
 import { SessionItemCard } from './SessionItemCard'
 import type { ActiveView } from './sessionView'
+import type { SessionItemRow } from './types'
 
-export function ActiveSession({ view, photoUrls }: { view: ActiveView; photoUrls: Record<string, string> }) {
+export function ActiveSession({
+  view,
+  photoUrls,
+  workspaceId,
+  sessionId,
+  items,
+}: {
+  view: ActiveView
+  photoUrls: Record<string, string>
+  workspaceId: string
+  sessionId: string
+  items: SessionItemRow[]
+}) {
   const { running, frozen } = view
   const runningEmpty = running.pricedCount + running.unpricedCount === 0
   return (
@@ -42,6 +56,8 @@ export function ActiveSession({ view, photoUrls }: { view: ActiveView; photoUrls
           </div>
         </dl>
       </section>
+
+      <SessionActions workspaceId={workspaceId} sessionId={sessionId} items={items} />
 
       {view.itemCount === 0 ? (
         <p className="text-sm">Sesi ini belum memiliki barang.</p>

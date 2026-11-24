@@ -1,6 +1,7 @@
 import { ListSummaryCard } from '../daftar/ListSummaryCard'
 import { useDaftar } from '../daftar/useList'
 import { CompletedSummary } from './CompletedSummary'
+import { StartSession } from './StartSession'
 import type { CompletedView } from './sessionView'
 
 // Dipasang hanya saat tidak ada sesi aktif, jadi langganan daftar dan katalog hanya hidup di keadaan ini.
@@ -36,6 +37,11 @@ export function NoSessionView({ workspaceId, completed }: { workspaceId: string;
             <ListSummaryCard summary={view.summary} />
           </>
         )}
+        <StartSession
+          workspaceId={workspaceId}
+          summary={readError === null && view !== null ? view.summary : null}
+          catalogPending={catalogPending}
+        />
       </section>
     </div>
   )

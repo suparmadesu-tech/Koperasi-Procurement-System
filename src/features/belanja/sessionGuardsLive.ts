@@ -1,6 +1,6 @@
-import { countPendingOps } from '../../lib/pending-ops'
 import { countBlockingOps } from '../../lib/queue'
 import { checkEnd, checkStart } from './sessionGuards'
 
 export const checkStartLive = () => checkStart(() => countBlockingOps())
-export const checkEndLive = () => checkEnd(() => countPendingOps())
+// Operasi yang sudah ditolak server tidak dianggap belum tersimpan (SYNC-003), sama seperti saat mulai sesi.
+export const checkEndLive = () => checkEnd(() => countBlockingOps())
