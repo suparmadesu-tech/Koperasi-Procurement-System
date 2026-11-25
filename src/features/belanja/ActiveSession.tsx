@@ -1,10 +1,14 @@
 import { formatRupiah } from '../../lib/money'
 import { unpricedLabel } from '../daftar/listView'
+import { useOnline } from '../daftar/useOnline'
 import { formatDateTimeJakarta } from './format'
 import { SessionActions } from './SessionActions'
-import { SessionItemCard } from './SessionItemCard'
+import { BulkPurchase } from './BulkPurchase'
+import { ChecklistStatus } from './ChecklistStatus'
+import { EditableSessionItemCard } from './EditableSessionItemCard'
 import type { ActiveView } from './sessionView'
 import type { SessionItemRow } from './types'
+import { useChecklist } from './useChecklist'
 
 export function ActiveSession({
   view,
@@ -19,6 +23,12 @@ export function ActiveSession({
   sessionId: string
   items: SessionItemRow[]
 }) {
+  const online = useOnline()
+  const checklist = useChecklist(workspaceId)
+  const inCart = (view.groups.find((g) => g.status === 'in_cart')?.items ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+  }))
   const { running, frozen } = view
   const runningEmpty = running.pricedCount + running.unpricedCount === 0
   return (
@@ -59,6 +69,10 @@ export function ActiveSession({
 
       <SessionActions workspaceId={workspaceId} sessionId={sessionId} items={items} />
 
+      <ChecklistStatus checklist={checklist} online={online} />
+
+      <BulkPurchase checklist={checklist} items={inCart} online={online} />
+
       {view.itemCount === 0 ? (
         <p className="text-sm">Sesi ini belum memiliki barang.</p>
       ) : (
@@ -69,7 +83,13 @@ export function ActiveSession({
             </h2>
             <ul className="space-y-3">
               {g.items.map((i) => (
-                <SessionItemCard key={i.id} item={i} photoUrl={i.photoPath ? photoUrls[i.photoPath] : undefined} />
+                <EditableSessionItemCard
+                  key={i.id}
+                  item={i}
+                  photoUrl={i.photoPath ? photoUrls[i.photoPath] : undefined}
+                  checklist={checklist}
+                  online={online}
+                />
               ))}
             </ul>
           </section>

@@ -1,9 +1,18 @@
+import type { ReactNode } from 'react'
 import { formatRupiah } from '../../lib/money'
 import { formatQuantity } from '../daftar/format'
 import { ItemPhoto } from '../daftar/ListItemCard'
 import type { SessionItemView } from './sessionView'
 
-export function SessionItemCard({ item, photoUrl }: { item: SessionItemView; photoUrl: string | undefined }) {
+export function SessionItemCard({
+  item,
+  photoUrl,
+  children,
+}: {
+  item: SessionItemView
+  photoUrl: string | undefined
+  children?: ReactNode
+}) {
   const unit = item.unitName ? ` ${item.unitName}` : ''
   return (
     <li className="flex gap-3 rounded-md bg-white p-3 ring-1 ring-black/20">
@@ -31,6 +40,7 @@ export function SessionItemCard({ item, photoUrl }: { item: SessionItemView; pho
           </div>
         )}
         {item.direct ? <p className="text-xs text-ink/75">Ditambahkan langsung ke sesi</p> : null}
+        {children}
       </div>
     </li>
   )

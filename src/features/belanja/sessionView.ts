@@ -30,6 +30,8 @@ export interface SessionItemView {
   photoPath: string | null
   // Ditambahkan langsung ke sesi (source_item_id kosong, FR-052).
   direct: boolean
+  // allow_fraction_snapshot: pecahan jumlah aktual mengikuti snapshot (FR-012).
+  allowFraction: boolean
 }
 
 export interface StatusGroup {
@@ -78,6 +80,7 @@ function toItemView(i: SessionItemRow): SessionItemView {
     note: i.note_snapshot,
     photoPath: i.photo_path_snapshot,
     direct: i.source_item_id === null,
+    allowFraction: i.allow_fraction_snapshot,
   }
 }
 

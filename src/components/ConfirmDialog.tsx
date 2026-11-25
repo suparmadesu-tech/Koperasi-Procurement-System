@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { btnPrimary, btnSecondary } from './ui';
 
 type Props = {
@@ -14,6 +14,7 @@ type Props = {
 export default function ConfirmDialog(props: Props) {
   const { open, title, message, confirmLabel, cancelLabel, onConfirm, onCancel } = props;
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -25,14 +26,14 @@ export default function ConfirmDialog(props: Props) {
   return (
     <dialog
       ref={ref}
-      aria-labelledby="confirm-title"
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
         onCancel();
       }}
       className="w-[calc(100%-2rem)] max-w-sm rounded-lg bg-white p-5 text-ink backdrop:bg-black/50"
     >
-      <h2 id="confirm-title" className="text-lg font-semibold">
+      <h2 id={titleId} className="text-lg font-semibold">
         {title}
       </h2>
       <p className="mt-2 text-base">{message}</p>
