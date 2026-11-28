@@ -14,6 +14,14 @@ const SESSION_MESSAGES: Record<string, string> = {
   KPS_SESSION_FROZEN: 'Sesi ini sudah selesai atau dibatalkan, jadi tidak dapat diubah lagi.',
   KPS_SOURCE_NOT_MOVED: 'Data sesi tidak konsisten. Muat ulang lalu coba lagi.',
   KPS_TOTAL_MISMATCH: 'Total sesi tidak cocok dengan hitungan server. Muat ulang lalu coba lagi.',
+  // Menambah barang ke sesi (FR-052): wording khusus sesi.
+  KPS_PRODUCT_ARCHIVED: 'Barang katalog ini sudah diarsipkan, jadi tidak dapat ditambahkan ke sesi.',
+  KPS_FRACTION_NOT_ALLOWED: 'Satuan barang ini tidak menerima jumlah berpecahan. Masukkan bilangan bulat.',
+  KPS_INVALID_QUANTITY: 'Jumlah harus lebih dari 0 dan paling banyak 3 angka di belakang koma.',
+  KPS_TEXT_TOO_LONG: 'Teks terlalu panjang. Nama maksimal 200 karakter, satuan 50, catatan 1000.',
+  KPS_CONFLICT: 'Barang dengan ID ini sudah ada di sesi. Muat ulang untuk melihatnya.',
+  KPS_PHOTO_NOT_FOUND: 'Berkas foto belum ada di penyimpanan, jadi barang belum ditambahkan. Coba lagi atau tambahkan tanpa foto.',
+  KPS_INVALID_PHOTO_PATH: 'Lokasi foto tidak valid, jadi barang belum ditambahkan. Coba lagi atau tambahkan tanpa foto.',
 }
 
 export function sessionMessageForCode(code: string | null | undefined, serverMessage?: string): string {

@@ -3,6 +3,7 @@ import { unpricedLabel } from '../daftar/listView'
 import { useOnline } from '../daftar/useOnline'
 import { formatDateTimeJakarta } from './format'
 import { SessionActions } from './SessionActions'
+import { AddToSession } from './AddToSession'
 import { BulkPurchase } from './BulkPurchase'
 import { ChecklistStatus } from './ChecklistStatus'
 import { EditableSessionItemCard } from './EditableSessionItemCard'
@@ -72,6 +73,8 @@ export function ActiveSession({
       <ChecklistStatus checklist={checklist} online={online} />
 
       <BulkPurchase checklist={checklist} items={inCart} online={online} />
+
+      <AddToSession workspaceId={workspaceId} sessionId={sessionId} online={online} />
 
       {view.itemCount === 0 ? (
         <p className="text-sm">Sesi ini belum memiliki barang.</p>

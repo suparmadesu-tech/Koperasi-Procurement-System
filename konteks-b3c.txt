@@ -1,0 +1,2178 @@
+=== src/features/belanja/ActiveSession.tsx
+import { formatRupiah } from '../../lib/money'
+import { unpricedLabel } from '../daftar/listView'
+import { useOnline } from '../daftar/useOnline'
+import { formatDateTimeJakarta } from './format'
+import { SessionActions } from './SessionActions'
+import { BulkPurchase } from './BulkPurchase'
+import { ChecklistStatus } from './ChecklistStatus'
+import { EditableSessionItemCard } from './EditableSessionItemCard'
+import type { ActiveView } from './sessionView'
+import type { SessionItemRow } from './types'
+import { useChecklist } from './useChecklist'
+
+export function ActiveSession({
+  view,
+  photoUrls,
+  workspaceId,
+  sessionId,
+  items,
+}: {
+  view: ActiveView
+  photoUrls: Record<string, string>
+  workspaceId: string
+  sessionId: string
+  items: SessionItemRow[]
+}) {
+  const online = useOnline()
+  const checklist = useChecklist(workspaceId)
+  const inCart = (view.groups.find((g) => g.status === 'in_cart')?.items ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+  }))
+  const { running, frozen } = view
+  const runningEmpty = running.pricedCount + running.unpricedCount === 0
+  return (
+    <div className="space-y-4">
+      <section aria-labelledby="ringkasan-sesi" className="space-y-4 rounded-md bg-white p-4 ring-1 ring-black/20">
+        <div>
+          <h2 id="ringkasan-sesi" className="font-semibold">
+            Sesi belanja aktif
+          </h2>
+          <p className="text-sm text-ink/75">Dimulai {formatDateTimeJakarta(view.startedAt)} WIB</p>
+        </div>
+        <dl className="space-y-4">
+          <div className="space-y-1">
+            <dt className="text-sm text-ink/75">Total berjalan (barang di keranjang dan sudah dibeli)</dt>
+            <dd className="text-2xl font-semibold">{formatRupiah(running.total)}</dd>
+            {running.incomplete ? (
+              <dd className="text-sm">
+                <span className="font-semibold">Total berjalan belum lengkap.</span> {unpricedLabel(running.unpricedCount)}.
+              </dd>
+            ) : null}
+            {runningEmpty ? <dd className="text-sm">Belum ada barang di keranjang.</dd> : null}
+            <dd className="text-xs text-ink/75">Memakai harga aktual bila diisi, jika tidak harga awal sesi.</dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-sm text-ink/75">Estimasi awal (dibekukan saat sesi dimulai)</dt>
+            <dd className="text-lg font-semibold">
+              {frozen.total === null ? 'Belum tersedia' : formatRupiah(frozen.total)}
+            </dd>
+            {frozen.unpricedCount !== null && frozen.unpricedCount > 0 ? (
+              <dd className="text-sm">{unpricedLabel(frozen.unpricedCount)}.</dd>
+            ) : null}
+            <dd className="text-xs text-ink/75">
+              Tidak berubah walau harga katalog diperbarui atau barang ditambahkan ke sesi.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <SessionActions workspaceId={workspaceId} sessionId={sessionId} items={items} />
+
+      <ChecklistStatus checklist={checklist} online={online} />
+
+      <BulkPurchase checklist={checklist} items={inCart} online={online} />
+
+      {view.itemCount === 0 ? (
+        <p className="text-sm">Sesi ini belum memiliki barang.</p>
+      ) : (
+        view.groups.map((g) => (
+          <section key={g.status} aria-labelledby={`grup-${g.status}`} className="space-y-3">
+            <h2 id={`grup-${g.status}`} className="font-semibold">
+              {g.label} ({g.items.length})
+            </h2>
+            <ul className="space-y-3">
+              {g.items.map((i) => (
+                <EditableSessionItemCard
+                  key={i.id}
+                  item={i}
+                  photoUrl={i.photoPath ? photoUrls[i.photoPath] : undefined}
+                  checklist={checklist}
+                  online={online}
+                />
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
+    </div>
+  )
+}
+=== src/features/belanja/SessionItemCard.tsx
+import type { ReactNode } from 'react'
+import { formatRupiah } from '../../lib/money'
+import { formatQuantity } from '../daftar/format'
+import { ItemPhoto } from '../daftar/ListItemCard'
+import type { SessionItemView } from './sessionView'
+
+export function SessionItemCard({
+  item,
+  photoUrl,
+  children,
+}: {
+  item: SessionItemView
+  photoUrl: string | undefined
+  children?: ReactNode
+}) {
+  const unit = item.unitName ? ` ${item.unitName}` : ''
+  return (
+    <li className="flex gap-3 rounded-md bg-white p-3 ring-1 ring-black/20">
+      {item.photoPath ? <ItemPhoto key={photoUrl ?? 'tanpa-url'} url={photoUrl} name={item.name} /> : null}
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="break-words font-semibold">{item.name}</p>
+        <p className="text-sm">
+          Dibutuhkan {formatQuantity(item.needed)}
+          {unit}
+          {item.actual !== null ? ` · Aktual ${formatQuantity(item.actual)}${unit}` : ''}
+        </p>
+        {item.note ? <p className="whitespace-pre-line break-words text-sm">Catatan: {item.note}</p> : null}
+        {item.price === null ? (
+          <p className="text-sm">Harga belum tersedia</p>
+        ) : (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+            <span>
+              {formatRupiah(item.price)} {item.priceIsActual ? '(harga aktual)' : '(harga awal sesi)'}
+            </span>
+            {item.subtotal !== null ? (
+              <span className="font-semibold">{formatRupiah(item.subtotal)}</span>
+            ) : (
+              <span className="text-xs text-ink/75">Belum masuk total</span>
+            )}
+          </div>
+        )}
+        {item.direct ? <p className="text-xs text-ink/75">Ditambahkan langsung ke sesi</p> : null}
+        {children}
+      </div>
+    </li>
+  )
+}
+=== src/features/belanja/EditableSessionItemCard.tsx
+import { useState, useSyncExternalStore } from 'react'
+import { btnPrimary, btnSecondary } from '../../components/ui'
+import { TextField } from '../daftar/TextField'
+import {
+  actualQuantityPrefill,
+  planActualQuantity,
+  planPriceActual,
+  priceActualPrefill,
+  priceOkText,
+  quantityOkText,
+  statusOkText,
+} from './checklistForms'
+import type { ItemOpState } from './itemOps'
+import { SessionItemCard } from './SessionItemCard'
+import { setPriceActualPayload, setQuantityActualPayload, setStatusPayload } from './sessionPayloads'
+import { STATUS_LABEL, type SessionItemView } from './sessionView'
+import { ITEM_STATUSES, type ItemStatus } from './types'
+import type { Checklist } from './useChecklist'
+
+type Editing = 'quantity' | 'price' | null
+
+function ItemFailure({
+  op,
+  online,
+  onRetry,
+  onDismiss,
+}: {
+  op: ItemOpState
+  online: boolean
+  onRetry: () => void
+  onDismiss: () => void
+}) {
+  const f = op.failure
+  if (op.phase !== 'failed' || f === null) return null
+  return (
+    <div role="alert" className="space-y-2 rounded-md bg-white p-3 text-sm text-red-900 ring-1 ring-red-800/60">
+      <p className="break-words">{f.message}</p>
+      {f.retryable ? (
+        <>
+          <p>
+            Belum ada konfirmasi dari server, jadi perubahan ini mungkin sudah atau belum tersimpan. Mengirim ulang aman
+            dan tidak menggandakan hasil.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnSecondary} onClick={onRetry} disabled={!online}>
+              Coba lagi
+            </button>
+            <button type="button" className={btnSecondary} onClick={onDismiss}>
+              Hentikan percobaan
+            </button>
+          </div>
+          <p className="text-xs">Setelah dihentikan, layar disegarkan dari server untuk melihat hasil sebenarnya.</p>
+        </>
+      ) : (
+        <button type="button" className={btnSecondary} onClick={onDismiss}>
+          Tutup
+        </button>
+      )}
+    </div>
+  )
+}
+
+export function EditableSessionItemCard({
+  item,
+  photoUrl,
+  checklist,
+  online,
+}: {
+  item: SessionItemView
+  photoUrl: string | undefined
+  checklist: Checklist
+  online: boolean
+}) {
+  const { items: itemOps, bulk } = checklist
+  const op = useSyncExternalStore(
+    itemOps.subscribe,
+    () => itemOps.getItem(item.id),
+    () => itemOps.getItem(item.id),
+  )
+  const bulkState = useSyncExternalStore(bulk.subscribe, bulk.getState, bulk.getState)
+  const [editing, setEditing] = useState<Editing>(null)
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  const busy = op.phase === 'sending'
+  const awaitingRetry = op.phase === 'failed' && op.failure !== null && op.failure.retryable
+  const bulkHolds = bulkState.phase === 'confirm' || bulkState.phase === 'running' || bulkState.phase === 'halted'
+  const blocked = busy || awaitingRetry || bulkHolds || !online
+  const locked = busy || awaitingRetry
+
+  function open(kind: 'quantity' | 'price') {
+    setEditing(kind)
+    setError(undefined)
+    setText(kind === 'quantity' ? actualQuantityPrefill(item) : priceActualPrefill(item))
+  }
+
+  async function changeStatus(next: ItemStatus) {
+    if (next === item.status || blocked) return
+    await itemOps.run(item.id, 'session_set_status', setStatusPayload(item.id, next), statusOkText(item.name, next))
+  }
+
+  async function saveQuantity() {
+    const plan = planActualQuantity(item, text)
+    if (plan.kind === 'invalid') {
+      setError(plan.message)
+      return
+    }
+    setError(undefined)
+    if (plan.kind === 'noop') {
+      setEditing(null)
+      return
+    }
+    const out = await itemOps.run(
+      item.id,
+      'session_set_quantity_actual',
+      setQuantityActualPayload(item.id, plan.value),
+      quantityOkText(item.name, plan.value, item.unitName),
+    )
+    if (out.status === 'ok') setEditing(null)
+  }
+
+  async function savePrice() {
+    const plan = planPriceActual(item, text)
+    if (plan.kind === 'invalid') {
+      setError(plan.message)
+      return
+    }
+    setError(undefined)
+    if (plan.kind === 'noop') {
+      setEditing(null)
+      return
+    }
+    const out = await itemOps.run(
+      item.id,
+      'session_set_price_actual',
+      setPriceActualPayload(item.id, plan.value),
+      priceOkText(item.name, plan.value),
+    )
+    if (out.status === 'ok') setEditing(null)
+  }
+
+  async function retry() {
+    const out = await itemOps.retry(item.id)
+    if (out.status === 'ok') setEditing(null)
+  }
+
+  const saving = (
+    <button type="submit" className={btnPrimary} disabled={locked || bulkHolds || !online}>
+      {busy ? 'Menyimpan...' : 'Simpan'}
+    </button>
+  )
+
+  return (
+    <SessionItemCard item={item} photoUrl={photoUrl}>
+      <fieldset disabled={blocked} className="min-w-0 space-y-1 pt-2">
+        <legend className="text-sm font-semibold">Status {item.name}</legend>
+        <div className="flex flex-wrap gap-2">
+          {ITEM_STATUSES.map((s) => (
+            <label
+              key={s}
+              className={`flex min-h-12 items-center gap-2 rounded-md bg-white px-3 text-base ring-1 ring-black/25 ${
+                blocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+              }`}
+            >
+              <input
+                type="radio"
+                name={`status-${item.id}`}
+                value={s}
+                checked={item.status === s}
+                onChange={() => void changeStatus(s)}
+                className="h-5 w-5"
+              />
+              {STATUS_LABEL[s]}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {busy ? (
+        <p role="status" className="text-sm">
+          Menyimpan...
+        </p>
+      ) : null}
+
+      {editing === null ? (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {item.status === 'to_buy' ? (
+            <p className="w-full text-xs text-ink/75">Jumlah aktual diisi setelah barang masuk keranjang.</p>
+          ) : (
+            <button type="button" className={btnSecondary} onClick={() => open('quantity')} disabled={blocked}>
+              Ubah jumlah aktual
+            </button>
+          )}
+          <button type="button" className={btnSecondary} onClick={() => open('price')} disabled={blocked}>
+            Ubah harga aktual
+          </button>
+        </div>
+      ) : editing === 'quantity' ? (
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault()
+            void saveQuantity()
+          }}
+          className="space-y-2 pt-1"
+        >
+          <TextField
+            id={`jumlah-aktual-${item.id}`}
+            label="Jumlah aktual"
+            value={text}
+            onChange={setText}
+            error={error}
+            inputMode={item.allowFraction ? 'decimal' : 'numeric'}
+            hint={
+              item.allowFraction
+                ? 'Boleh 0 dan berpecahan, maksimal 3 angka di belakang koma.'
+                : 'Satuan ini hanya menerima bilangan bulat. Boleh 0.'
+            }
+            readOnly={locked}
+          />
+          <div className="flex flex-wrap gap-2">
+            {saving}
+            <button type="button" className={btnSecondary} onClick={() => setEditing(null)} disabled={locked}>
+              Batal
+            </button>
+          </div>
+        </form>
+      ) : (
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault()
+            void savePrice()
+          }}
+          className="space-y-2 pt-1"
+        >
+          <TextField
+            id={`harga-aktual-${item.id}`}
+            label="Harga satuan aktual (Rp)"
+            value={text}
+            onChange={setText}
+            error={error}
+            inputMode="numeric"
+            hint="Rupiah bulat. Kosongkan untuk memakai harga awal sesi. 0 diterima sebagai harga."
+            readOnly={locked}
+          />
+          <div className="flex flex-wrap gap-2">
+            {saving}
+            <button type="button" className={btnSecondary} onClick={() => setEditing(null)} disabled={locked}>
+              Batal
+            </button>
+          </div>
+        </form>
+      )}
+
+      <ItemFailure op={op} online={online} onRetry={() => void retry()} onDismiss={() => itemOps.dismiss(item.id)} />
+    </SessionItemCard>
+  )
+}
+=== src/features/belanja/sessionView.ts
+import {
+  effectivePriceOf,
+  isLiveItem,
+  itemSubtotal,
+  returnPreview,
+  runningTotals,
+  statusCounts,
+  type Totals,
+} from './sessionMath'
+import { ITEM_STATUSES, type ItemStatus, type SessionItemRow, type SessionRow } from './types'
+
+export const STATUS_LABEL: Record<ItemStatus, string> = {
+  to_buy: 'Belum dibeli',
+  in_cart: 'Di keranjang',
+  purchased: 'Sudah dibeli',
+}
+
+export interface SessionItemView {
+  id: string
+  name: string
+  unitName: string
+  status: ItemStatus
+  needed: string
+  actual: string | null
+  // Harga efektif (FR-053); null berarti tanpa harga dan tidak pernah tampil Rp 0 (FR-019).
+  price: string | null
+  priceIsActual: boolean
+  subtotal: string | null
+  note: string | null
+  photoPath: string | null
+  // Ditambahkan langsung ke sesi (source_item_id kosong, FR-052).
+  direct: boolean
+  // allow_fraction_snapshot: pecahan jumlah aktual mengikuti snapshot (FR-012).
+  allowFraction: boolean
+}
+
+export interface StatusGroup {
+  status: ItemStatus
+  label: string
+  items: SessionItemView[]
+}
+
+// Nilai beku dari server, tidak dihitung ulang di klien (FR-024, FR-050).
+export interface FrozenStart {
+  total: string | null
+  unpricedCount: number | null
+}
+
+export interface ActiveView {
+  startedAt: string
+  itemCount: number
+  groups: StatusGroup[]
+  running: Totals
+  frozen: FrozenStart
+}
+
+export interface CompletedView {
+  endedAt: string | null
+  totalActual: string | null
+  unpricedPurchased: number | null
+  estimate: FrozenStart
+  purchasedCount: number
+  returnCount: number
+}
+
+const byName = (a: SessionItemRow, b: SessionItemRow) =>
+  a.product_name_snapshot.localeCompare(b.product_name_snapshot, 'id') || a.id.localeCompare(b.id)
+
+function toItemView(i: SessionItemRow): SessionItemView {
+  return {
+    id: i.id,
+    name: i.product_name_snapshot,
+    unitName: i.unit_snapshot,
+    status: i.status,
+    needed: i.quantity_needed,
+    actual: i.quantity_actual,
+    price: effectivePriceOf(i),
+    priceIsActual: i.price_actual !== null,
+    subtotal: itemSubtotal(i),
+    note: i.note_snapshot,
+    photoPath: i.photo_path_snapshot,
+    direct: i.source_item_id === null,
+    allowFraction: i.allow_fraction_snapshot,
+  }
+}
+
+export function buildActiveView(session: SessionRow, items: SessionItemRow[]): ActiveView {
+  const live = items.filter(isLiveItem).sort(byName)
+  const groups = ITEM_STATUSES.map((status) => ({
+    status,
+    label: STATUS_LABEL[status],
+    items: live.filter((i) => i.status === status).map(toItemView),
+  })).filter((g) => g.items.length > 0)
+
+  return {
+    startedAt: session.started_at,
+    itemCount: live.length,
+    groups,
+    running: runningTotals(live),
+    frozen: { total: session.total_estimate, unpricedCount: session.unpriced_items_at_start },
+  }
+}
+
+// Hanya sesi completed yang punya ringkasan; sesi cancelled tidak punya layar sendiri (FR-040).
+export function buildCompletedView(session: SessionRow | null, items: SessionItemRow[]): CompletedView | null {
+  if (session === null || session.status !== 'completed') return null
+  const live = items.filter(isLiveItem)
+  return {
+    endedAt: session.ended_at,
+    totalActual: session.total_actual,
+    unpricedPurchased: session.unpriced_items_purchased,
+    estimate: { total: session.total_estimate, unpricedCount: session.unpriced_items_at_start },
+    purchasedCount: statusCounts(live).purchased,
+    returnCount: returnPreview(live).count,
+  }
+}
+=== src/features/belanja/sessionPayloads.ts
+import { quantityToWire } from '../daftar/rows'
+import { priceToWire } from '../katalog/rows'
+import type { ItemStatus } from './types'
+
+type Payload = Record<string, unknown>
+
+// Kunci mengikuti KPS-DB-Bagian-3, bagian 4 dan 5. Untuk operasi lewat kps_apply_op,
+// session_id dan product_id berikut dipetakan ke p_session_id dan p_product_id oleh toRpcCall.
+export const startSessionPayload = (): Payload => ({})
+export const endSessionPayload = (sessionId: string): Payload => ({ session_id: sessionId })
+export const cancelSessionPayload = (sessionId: string): Payload => ({ session_id: sessionId })
+
+export function addCatalogToSessionPayload(
+  sessionId: string,
+  productId: string,
+  quantity: string,
+  note: string | null,
+): Payload {
+  const p: Payload = { session_id: sessionId, product_id: productId, quantity: quantityToWire(quantity) }
+  if (note !== null) p.note = note
+  return p
+}
+
+export function addManualToSessionPayload(input: {
+  sessionId: string
+  id: string
+  name: string
+  unit: string
+  quantity: string
+  note: string | null
+  photoPath: string | null
+}): Payload {
+  const p: Payload = {
+    session_id: input.sessionId,
+    id: input.id,
+    name: input.name,
+    unit: input.unit,
+    quantity: quantityToWire(input.quantity),
+  }
+  if (input.note !== null) p.note = input.note
+  if (input.photoPath !== null) p.photo_path = input.photoPath
+  return p
+}
+
+export const setStatusPayload = (itemId: string, status: ItemStatus): Payload => ({ item_id: itemId, status })
+
+export const setQuantityActualPayload = (itemId: string, quantity: string): Payload => ({
+  item_id: itemId,
+  quantity: quantityToWire(quantity),
+})
+
+// null mengosongkan harga aktual; 0 sah (FR-053).
+export const setPriceActualPayload = (itemId: string, price: string | null): Payload => ({
+  item_id: itemId,
+  price: priceToWire(price),
+})
+
+export const setQuantityNeededPayload = (itemId: string, quantity: string): Payload => ({
+  item_id: itemId,
+  quantity: quantityToWire(quantity),
+})
+
+export const deleteItemPayload = (itemId: string): Payload => ({ item_id: itemId })
+
+export const setSessionPhotoPayload = (itemId: string, photoPath: string): Payload => ({
+  item_id: itemId,
+  photo_path: photoPath,
+})
+=== src/features/belanja/sessionValidation.ts
+import { LIST_TEXT_LIMITS } from '../daftar/types'
+import { parseQuantityInput, type QuantityResult } from '../daftar/validation'
+import type { FormResult } from '../katalog/validation'
+
+// Harga aktual: kosong berarti mengosongkan (value null), 0 sah, Rupiah bulat (FR-053).
+export { parsePriceInput as parsePriceActualInput } from '../katalog/moneyAdapter'
+// Nama, satuan, jumlah, dan catatan barang manual di sesi memakai batas yang sama dengan daftar (BR-039).
+export { validateManualItemForm as validateSessionManualForm } from '../daftar/validation'
+// Jumlah kebutuhan barang yang ditambahkan langsung: lebih dari 0.
+export { parseQuantityInput as parseNeededQuantityInput } from '../daftar/validation'
+
+const charCount = (s: string) => Array.from(s).length
+
+// Pecahan mengikuti allow_fraction_snapshot; server tetap penentu. Jumlah aktual 0 diterima (quantity_actual tidak negatif).
+export function parseActualQuantityInput(text: string, opts: { allowFraction: boolean }): QuantityResult {
+  const raw = text.trim().replace(',', '.')
+  if (/^(0+(\.0*)?|\.0+)$/.test(raw)) return { ok: true, value: '0' }
+  return parseQuantityInput(text, opts)
+}
+
+export function validateSessionCatalogForm(input: {
+  productId: string
+  quantityText: string
+  note: string
+  allowFraction: boolean
+}): FormResult<{ productId: string; quantity: string; note: string | null }, 'productId' | 'quantity' | 'note'> {
+  const errors: Partial<Record<'productId' | 'quantity' | 'note', string>> = {}
+  if (!input.productId) errors.productId = 'Pilih barang dari katalog.'
+  const note = input.note.trim()
+  if (charCount(note) > LIST_TEXT_LIMITS.note) errors.note = `Catatan maksimal ${LIST_TEXT_LIMITS.note} karakter.`
+  const q = parseQuantityInput(input.quantityText, { allowFraction: input.allowFraction })
+  if (!q.ok) errors.quantity = q.message
+  if (Object.keys(errors).length > 0 || !q.ok) return { ok: false, errors }
+  return { ok: true, value: { productId: input.productId, quantity: q.value, note: note === '' ? null : note } }
+}
+=== src/features/belanja/sessionErrors.ts
+import { messageForCode } from '../daftar/errors'
+
+// Kode khusus sesi. Kode lain jatuh ke tabel pesan daftar.
+const SESSION_MESSAGES: Record<string, string> = {
+  KPS_SESSION_ALREADY_ACTIVE: 'Sudah ada sesi belanja yang aktif. Muat ulang untuk melihatnya.',
+  KPS_SESSION_NOT_ACTIVE:
+    'Sesi ini sudah selesai atau dibatalkan, jadi tidak dapat diubah lagi. Perubahan Anda tidak tersimpan.',
+  KPS_ITEM_DELETED: 'Barang ini sudah dihapus dari sesi.',
+  KPS_TARGET_NOT_FOUND: 'Sesi atau barang tidak ditemukan. Muat ulang untuk melihat keadaan terbaru.',
+  KPS_SNAPSHOT_IMMUTABLE:
+    'Perubahan ini tidak diizinkan: data awal barang dari daftar tidak dapat diubah, jumlah kebutuhan dan penghapusan hanya untuk barang yang ditambahkan langsung ke sesi, dan foto hanya dapat dipasang sekali.',
+  KPS_QUANTITY_ACTUAL_STATE: 'Jumlah aktual hanya dapat diisi untuk barang yang sudah masuk keranjang atau dibeli.',
+  KPS_INVALID_PRICE: 'Harga harus Rupiah bulat dan tidak negatif.',
+  KPS_SESSION_FROZEN: 'Sesi ini sudah selesai atau dibatalkan, jadi tidak dapat diubah lagi.',
+  KPS_SOURCE_NOT_MOVED: 'Data sesi tidak konsisten. Muat ulang lalu coba lagi.',
+  KPS_TOTAL_MISMATCH: 'Total sesi tidak cocok dengan hitungan server. Muat ulang lalu coba lagi.',
+}
+
+export function sessionMessageForCode(code: string | null | undefined, serverMessage?: string): string {
+  if (code) {
+    const own = SESSION_MESSAGES[code]
+    if (own) return own
+  }
+  return messageForCode(code, serverMessage)
+}
+=== src/features/belanja/sessionRpc.ts
+import type { SubmitDeps } from '../daftar/submitCore'
+
+// Memiliki RPC sendiri (KPS-DB-Bagian-3, bagian 4).
+export type DirectOp =
+  | 'kps_start_session'
+  | 'kps_end_session'
+  | 'kps_cancel_session'
+  | 'kps_add_catalog_to_session'
+
+// Lewat kps_apply_op (bagian 5).
+export type ApplyOp =
+  | 'session_add_manual'
+  | 'session_set_status'
+  | 'session_set_quantity_actual'
+  | 'session_set_price_actual'
+  | 'session_set_quantity_needed'
+  | 'session_delete_item'
+  | 'session_set_photo'
+
+export type SessionOpType = DirectOp | ApplyOp
+export type RpcArgs = Parameters<SubmitDeps['rpc']>[0]
+
+export interface RpcCall {
+  fn: string
+  args: Record<string, unknown>
+}
+
+// p_op_type memilih fungsi; kunci payload klien dipetakan ke nama parameter RPC.
+export function toRpcCall(a: RpcArgs): RpcCall {
+  const base = { p_workspace_id: a.p_workspace_id, p_op_id: a.p_op_id }
+  const p = a.p_payload
+  switch (a.p_op_type) {
+    case 'kps_start_session':
+      return { fn: 'kps_start_session', args: base }
+    case 'kps_end_session':
+    case 'kps_cancel_session':
+      return { fn: a.p_op_type, args: { ...base, p_session_id: p.session_id } }
+    case 'kps_add_catalog_to_session': {
+      const args: Record<string, unknown> = {
+        ...base,
+        p_session_id: p.session_id,
+        p_product_id: p.product_id,
+        p_quantity: p.quantity,
+      }
+      if (typeof p.note === 'string') args.p_note = p.note
+      return { fn: 'kps_add_catalog_to_session', args }
+    }
+    default:
+      return { fn: 'kps_apply_op', args: { ...a } }
+  }
+}
+=== src/features/belanja/submitSessionOp.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { requestListRefresh } from '../daftar/listSync'
+import { createSubmitter, type SubmitOptions } from '../daftar/submitCore'
+import type { ListOpResult } from '../daftar/types'
+import { isOnline } from '../katalog/catalogStore'
+import { refreshSupabaseSession, sbClient } from './rpcDeps'
+import { sessionMessageForCode } from './sessionErrors'
+import { toRpcCall, type SessionOpType } from './sessionRpc'
+import { requestSessionRefresh } from './sessionSync'
+
+export type SessionOpResult = ListOpResult
+
+const core = createSubmitter({
+  rpc: async (args) => {
+    const call = toRpcCall(args)
+    const res = await (sbClient as SupabaseClient).rpc(call.fn, call.args)
+    return { data: res.data as unknown, error: res.error as unknown, status: res.status }
+  },
+  refreshSession: refreshSupabaseSession,
+  isOnline,
+  newId: () => crypto.randomUUID(),
+  messageFor: sessionMessageForCode,
+  offlineMessage: 'Anda sedang offline. Perubahan sesi belanja memerlukan koneksi internet.',
+})
+
+const RETURNS_TO_LIST: readonly SessionOpType[] = ['kps_start_session', 'kps_end_session', 'kps_cancel_session']
+const NO_REFRESH_CODES = ['OFFLINE', 'NO_CLIENT', 'SESSION_EXPIRED']
+
+// Titik tunggal penulisan sesi. Antarmukanya sama dengan submitListOp; Tahap 6 mengganti isinya
+// menjadi antrean offline untuk operasi yang boleh offline. Gunakan opId yang sama untuk kirim ulang.
+export function submitSessionOp(
+  workspaceId: string,
+  opType: SessionOpType,
+  payload: Record<string, unknown>,
+  options: SubmitOptions = {},
+): Promise<SessionOpResult> {
+  if (!sbClient) {
+    return Promise.resolve({
+      ok: false,
+      opId: options.opId ?? crypto.randomUUID(),
+      code: 'NO_CLIENT',
+      message: 'Supabase belum dikonfigurasi.',
+      retryable: false,
+    })
+  }
+  return core(workspaceId, opType, payload, options).then((r) => {
+    if (r.ok) {
+      requestSessionRefresh()
+      // Mulai, akhiri, dan batalkan memindahkan barang antara daftar dan sesi.
+      if (RETURNS_TO_LIST.includes(opType)) requestListRefresh()
+    } else if (!r.retryable && !NO_REFRESH_CODES.includes(r.code)) {
+      // Ditolak server: ambil keadaan terbaru supaya layar sama dengan server.
+      requestSessionRefresh()
+    }
+    return r
+  })
+}
+=== src/features/belanja/itemOps.ts
+import { createAttemptRunner } from '../daftar/attemptRunner'
+import type { SubmitOptions } from '../daftar/submitCore'
+import type { ListOpResult } from '../daftar/types'
+import type { SessionOpType } from './sessionRpc'
+
+export type SessionSubmit = (
+  type: SessionOpType,
+  payload: Record<string, unknown>,
+  options: SubmitOptions,
+) => Promise<ListOpResult>
+
+export type ItemOpType = 'session_set_status' | 'session_set_quantity_actual' | 'session_set_price_actual'
+export type ItemFailureKind = 'network' | 'offline' | 'rejected' | 'unexpected'
+
+export interface ItemFailure {
+  kind: ItemFailureKind
+  code: string
+  message: string
+  // true: percobaan menunggu kirim ulang dengan op_id sama, atau dihentikan pengguna.
+  retryable: boolean
+}
+
+export interface ItemOpState {
+  phase: 'idle' | 'sending' | 'failed'
+  failure: ItemFailure | null
+}
+
+// Hasil terakhir yang sudah dikonfirmasi server; dibaca pembaca layar lewat satu region status.
+export interface LastOk {
+  seq: number
+  text: string
+}
+
+export type RunOutcome = { status: 'ignored' } | { status: 'ok' } | { status: 'failed'; failure: ItemFailure }
+
+export interface ItemOpsConfig {
+  submit: SessionSubmit
+  newId: () => string
+  isOnline: () => boolean
+  onDiscard?: () => void
+}
+
+interface AttemptRunner {
+  run: (type: SessionOpType, payload: Record<string, unknown>) => Promise<ListOpResult>
+  retry: () => Promise<ListOpResult | null>
+  discard: () => void
+  hasPending: () => boolean
+}
+
+interface Slot {
+  runner: AttemptRunner
+  state: ItemOpState
+  okText: string
+}
+
+const IDLE: ItemOpState = { phase: 'idle', failure: null }
+const OFFLINE_MESSAGE = 'Anda sedang offline. Perubahan sesi belanja memerlukan koneksi internet.'
+const UNEXPECTED_MESSAGE = 'Terjadi galat tak terduga. Coba lagi.'
+
+function kindOf(r: Extract<ListOpResult, { ok: false }>): ItemFailureKind {
+  if (r.retryable) return 'network'
+  return r.code === 'OFFLINE' || r.code === 'NO_CLIENT' ? 'offline' : 'rejected'
+}
+
+// Satu slot per barang: kunci double-submit per barang, op_id baru per niat baru, op_id sama untuk "Coba lagi" (SYNC-004).
+// Tanpa optimistic update: nilai di layar berubah hanya setelah server menjawab dan data disegarkan (SYNC-006).
+export function createItemOps(cfg: ItemOpsConfig) {
+  const slots = new Map<string, Slot>()
+  const listeners = new Set<() => void>()
+  let last: LastOk | null = null
+  let seq = 0
+
+  const emit = () => listeners.forEach((l) => l())
+
+  function slotOf(id: string): Slot {
+    let s = slots.get(id)
+    if (!s) {
+      s = { runner: createAttemptRunner<SessionOpType>(cfg.submit, cfg.newId), state: IDLE, okText: '' }
+      slots.set(id, s)
+    }
+    return s
+  }
+
+  const holdsAttempt = (s: Slot) => s.state.phase === 'failed' && s.runner.hasPending()
+
+  function fail(s: Slot, failure: ItemFailure): RunOutcome {
+    s.state = { phase: 'failed', failure }
+    emit()
+    return { status: 'failed', failure }
+  }
+
+  // Fase 'sending' dipasang sebelum await pertama, jadi klik ganda berikutnya langsung diabaikan.
+  async function exec(s: Slot, go: () => Promise<ListOpResult | null>): Promise<RunOutcome> {
+    s.state = { phase: 'sending', failure: null }
+    emit()
+    let r: ListOpResult | null
+    try {
+      r = await go()
+    } catch {
+      return fail(s, { kind: 'unexpected', code: 'UNEXPECTED', message: UNEXPECTED_MESSAGE, retryable: s.runner.hasPending() })
+    }
+    if (r === null) {
+      s.state = IDLE
+      emit()
+      return { status: 'ignored' }
+    }
+    if (r.ok) {
+      s.state = IDLE
+      seq += 1
+      last = { seq, text: s.okText }
+      emit()
+      return { status: 'ok' }
+    }
+    return fail(s, { kind: kindOf(r), code: r.code, message: r.message, retryable: r.retryable })
+  }
+
+  async function run(
+    itemId: string,
+    type: ItemOpType,
+    payload: Record<string, unknown>,
+    okText: string,
+  ): Promise<RunOutcome> {
+    const s = slotOf(itemId)
+    if (s.state.phase === 'sending' || holdsAttempt(s)) return { status: 'ignored' }
+    if (!cfg.isOnline()) {
+      return fail(s, { kind: 'offline', code: 'OFFLINE', message: OFFLINE_MESSAGE, retryable: false })
+    }
+    s.okText = okText
+    return exec(s, () => s.runner.run(type, payload))
+  }
+
+  async function retry(itemId: string): Promise<RunOutcome> {
+    const s = slots.get(itemId)
+    if (!s || !holdsAttempt(s)) return { status: 'ignored' }
+    // Offline: jangan memanggil pengirim, supaya op_id yang menunggu tidak terbuang.
+    if (!cfg.isOnline()) return { status: 'ignored' }
+    return exec(s, () => s.runner.retry())
+  }
+
+  // Menutup galat penolakan, atau menghentikan percobaan yang menunggu (hasilnya tidak diketahui, jadi layar disegarkan).
+  function dismiss(itemId: string): void {
+    const s = slots.get(itemId)
+    if (!s || s.state.phase === 'sending') return
+    if (s.runner.hasPending()) {
+      s.runner.discard()
+      cfg.onDiscard?.()
+    }
+    s.state = IDLE
+    emit()
+  }
+
+  function anyBusy(): boolean {
+    for (const s of slots.values()) {
+      if (s.state.phase === 'sending' || holdsAttempt(s)) return true
+    }
+    return false
+  }
+
+  return {
+    getItem: (itemId: string): ItemOpState => slots.get(itemId)?.state ?? IDLE,
+    getLast: (): LastOk | null => last,
+    anyBusy,
+    subscribe: (listener: () => void): (() => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    run,
+    retry,
+    dismiss,
+  }
+}
+
+export type ItemOps = ReturnType<typeof createItemOps>
+=== src/features/belanja/useChecklist.ts
+import { useMemo } from 'react'
+import type { SubmitOptions } from '../daftar/submitCore'
+import { isOnline } from '../katalog/catalogStore'
+import { createBulkBatch } from './bulkBatch'
+import { createItemOps } from './itemOps'
+import type { SessionOpType } from './sessionRpc'
+import { requestSessionRefresh } from './sessionSync'
+import { submitSessionOp } from './submitSessionOp'
+
+// Menghubungkan pengendali murni dengan titik tunggal penulisan sesi. Tidak ada pola kirim baru.
+export function useChecklist(workspaceId: string) {
+  return useMemo(() => {
+    const common = {
+      submit: (type: SessionOpType, payload: Record<string, unknown>, options: SubmitOptions) =>
+        submitSessionOp(workspaceId, type, payload, options),
+      newId: () => crypto.randomUUID(),
+      isOnline,
+      // Percobaan dihentikan: hasilnya tidak diketahui, jadi layar disegarkan dari server.
+      onDiscard: requestSessionRefresh,
+    }
+    return { items: createItemOps(common), bulk: createBulkBatch(common) }
+  }, [workspaceId])
+}
+
+export type Checklist = ReturnType<typeof useChecklist>
+=== src/features/belanja/types.ts
+export type SessionStatus = 'active' | 'completed' | 'cancelled'
+export type ItemStatus = 'to_buy' | 'in_cart' | 'purchased'
+export const ITEM_STATUSES: readonly ItemStatus[] = ['to_buy', 'in_cart', 'purchased']
+
+// Uang dan kuantitas disimpan lokal sebagai string desimal, bukan float (FR-038).
+export interface SessionRow {
+  id: string
+  workspace_id: string
+  status: SessionStatus
+  started_by: string | null
+  started_at: string
+  ended_by: string | null
+  ended_at: string | null
+  // Dibekukan saat sesi dimulai (FR-024, FR-050).
+  total_estimate: string | null
+  unpriced_items_at_start: number | null
+  // Dibekukan saat sesi selesai; kosong untuk sesi aktif dan batal.
+  total_actual: string | null
+  unpriced_items_purchased: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerSession extends Omit<SessionRow, 'total_estimate' | 'total_actual'> {
+  total_estimate: number | string | null
+  total_actual: number | string | null
+}
+
+export interface SessionItemRow {
+  id: string
+  session_id: string
+  workspace_id: string
+  // Kosong untuk barang yang ditambahkan langsung ke sesi (FR-052).
+  source_item_id: string | null
+  product_id: string | null
+  product_name_snapshot: string
+  photo_path_snapshot: string | null
+  unit_snapshot: string
+  unit_id_snapshot: string | null
+  allow_fraction_snapshot: boolean
+  note_snapshot: string | null
+  price_snapshot: string | null
+  price_actual: string | null
+  quantity_needed: string
+  // Kosong tepat bila status to_buy.
+  quantity_actual: string | null
+  status: ItemStatus
+  // Penghapusan oleh pengguna; hanya untuk barang yang ditambahkan langsung (FR-048).
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerSessionItem
+  extends Omit<SessionItemRow, 'price_snapshot' | 'price_actual' | 'quantity_needed' | 'quantity_actual'> {
+  price_snapshot: number | string | null
+  price_actual: number | string | null
+  quantity_needed: number | string
+  quantity_actual: number | string | null
+}
+
+export interface SessionData {
+  sessions: SessionRow[]
+  items: SessionItemRow[]
+}
+=== src/features/daftar/useListOp.ts
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { createAttemptRunner } from './attemptRunner'
+import { requestListRefresh } from './listSync'
+import { submitListOp } from './submitListOp'
+import type { ListOpResult, ListOpType } from './types'
+
+export type OpOk = Extract<ListOpResult, { ok: true }>
+
+// Satu operasi pada satu waktu per pemakai hook. Gagal retryable disimpan untuk dikirim ulang dengan op_id yang sama.
+export function useListOp(workspaceId: string) {
+  const runner = useMemo(
+    () =>
+      createAttemptRunner<ListOpType>(
+        (type, payload, options) => submitListOp(workspaceId, type, payload, options),
+        () => crypto.randomUUID(),
+      ),
+    [workspaceId],
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const after = useRef<((r: OpOk) => void) | null>(null)
+
+  const finish = useCallback(
+    (r: ListOpResult | null): ListOpResult | null => {
+      setBusy(false)
+      setPending(runner.hasPending())
+      if (r === null) return r
+      setError(r.ok ? null : r.message)
+      // Ditolak server: ambil data terbaru supaya layar sama dengan server.
+      if (!r.ok && !r.retryable && r.code !== 'OFFLINE' && r.code !== 'NO_CLIENT') requestListRefresh()
+      return r
+    },
+    [runner],
+  )
+
+  const run = useCallback(
+    async (type: ListOpType, payload: Record<string, unknown>, onOk: (r: OpOk) => void) => {
+      after.current = onOk
+      setBusy(true)
+      setError(null)
+      const r = finish(await runner.run(type, payload))
+      if (r && r.ok) onOk(r)
+      return r
+    },
+    [runner, finish],
+  )
+
+  const retry = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    const r = finish(await runner.retry())
+    if (r && r.ok) after.current?.(r)
+    return r
+  }, [runner, finish])
+
+  const discard = useCallback(() => {
+    runner.discard()
+    setPending(false)
+    setError(null)
+    requestListRefresh()
+  }, [runner])
+
+  return { busy, error, pending, run, retry, discard }
+}
+=== src/features/daftar/attemptRunner.ts
+import type { SubmitOptions } from './submitCore'
+import type { ListOpResult } from './types'
+
+type Payload = Record<string, unknown>
+type Submit<T extends string> = (type: T, payload: Payload, options: SubmitOptions) => Promise<ListOpResult>
+interface Attempt<T extends string> {
+  opId: string
+  type: T
+  payload: Payload
+}
+
+// Satu percobaan yang gagal dengan retryable disimpan, lalu dikirim ulang dengan opId dan payload yang sama.
+export function createAttemptRunner<T extends string = string>(submit: Submit<T>, newId: () => string) {
+  let attempt: Attempt<T> | null = null
+
+  async function send(a: Attempt<T>): Promise<ListOpResult> {
+    const r = await submit(a.type, a.payload, { opId: a.opId })
+    attempt = !r.ok && r.retryable ? a : null
+    return r
+  }
+
+  return {
+    run: (type: T, payload: Payload): Promise<ListOpResult> => send({ opId: newId(), type, payload }),
+    retry: async (): Promise<ListOpResult | null> => (attempt ? send(attempt) : null),
+    discard: (): void => {
+      attempt = null
+    },
+    hasPending: (): boolean => attempt !== null,
+  }
+}
+=== src/features/daftar/types.ts
+// Barang daftar aktif: belum dihapus dan belum dipindahkan ke sesi.
+export interface ListItemRow {
+  id: string
+  workspace_id: string
+  shopping_list_id: string
+  product_id: string | null
+  manual_name: string | null
+  manual_unit: string | null
+  photo_path: string | null
+  note: string | null
+  // numeric dari server disimpan lokal sebagai string desimal, bukan float (FR-038).
+  quantity_needed: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ServerListItem extends Omit<ListItemRow, 'quantity_needed'> {
+  quantity_needed: number | string
+}
+
+// Batas BR-039. Satuan manual 50 karena disalin ke unit_snapshot.
+export const LIST_TEXT_LIMITS = { itemName: 200, manualUnit: 50, note: 1000 } as const
+
+export type ListOpType =
+  | 'add_catalog_to_list'
+  | 'list_add_manual'
+  | 'list_set_quantity'
+  | 'list_delete'
+  | 'list_set_photo'
+
+// retryable true: operasi mungkin sudah sampai ke server, kirim ulang dengan opId yang sama.
+export type ListOpResult =
+  | { ok: true; opId: string; data: Record<string, unknown>; replayed: boolean }
+  | { ok: false; opId: string; code: string; message: string; retryable: boolean }
+=== src/features/daftar/validation.ts
+import { D } from '../../lib/money'
+import type { FormResult } from '../katalog/validation'
+import { LIST_TEXT_LIMITS } from './types'
+
+// Panjang dihitung per code point, sama dengan char_length di PostgreSQL.
+const charCount = (s: string) => Array.from(s).length
+const MAX_QTY = new D('1000000000')
+
+export type QuantityResult = { ok: true; value: string } | { ok: false; message: string }
+
+// Koma dan titik sama-sama dianggap pemisah desimal. Pemisah ribuan tidak didukung.
+export function parseQuantityInput(text: string, opts: { allowFraction: boolean }): QuantityResult {
+  const raw = text.trim().replace(',', '.')
+  if (raw === '') return { ok: false, message: 'Jumlah wajib diisi.' }
+  if (!/^(\d+(\.\d+)?|\.\d+)$/.test(raw)) {
+    return { ok: false, message: 'Jumlah harus berupa angka positif, misalnya 2 atau 1,5.' }
+  }
+  const d = new D(raw)
+  if (d.decimalPlaces() > 3) return { ok: false, message: 'Jumlah maksimal 3 angka di belakang koma.' }
+  if (d.lte(0)) return { ok: false, message: 'Jumlah harus lebih dari 0.' }
+  if (d.gte(MAX_QTY)) return { ok: false, message: 'Jumlah terlalu besar.' }
+  if (!opts.allowFraction && !d.isInteger()) {
+    return { ok: false, message: 'Satuan ini tidak menerima jumlah berpecahan.' }
+  }
+  return { ok: true, value: d.toString() }
+}
+
+export function validateCatalogAddForm(input: {
+  productId: string
+  quantityText: string
+  allowFraction: boolean
+}): FormResult<{ productId: string; quantity: string }, 'productId' | 'quantity'> {
+  const errors: Partial<Record<'productId' | 'quantity', string>> = {}
+  if (!input.productId) errors.productId = 'Pilih barang dari katalog.'
+  const q = parseQuantityInput(input.quantityText, { allowFraction: input.allowFraction })
+  if (!q.ok) errors.quantity = q.message
+  if (errors.productId || !q.ok) return { ok: false, errors }
+  return { ok: true, value: { productId: input.productId, quantity: q.value } }
+}
+
+export interface ManualItemValue {
+  name: string
+  unit: string
+  quantity: string
+  note: string | null
+}
+
+type ManualKey = 'name' | 'unit' | 'quantity' | 'note'
+
+export function validateManualItemForm(input: {
+  name: string
+  unit: string
+  quantityText: string
+  note: string
+}): FormResult<ManualItemValue, ManualKey> {
+  const errors: Partial<Record<ManualKey, string>> = {}
+  const name = input.name.trim()
+  const unit = input.unit.trim()
+  const note = input.note.trim()
+  const L = LIST_TEXT_LIMITS
+
+  if (name === '') errors.name = 'Nama barang wajib diisi.'
+  else if (charCount(name) > L.itemName) errors.name = `Nama barang maksimal ${L.itemName} karakter.`
+
+  if (unit === '') errors.unit = 'Satuan wajib diisi.'
+  else if (charCount(unit) > L.manualUnit) errors.unit = `Satuan maksimal ${L.manualUnit} karakter.`
+
+  if (charCount(note) > L.note) errors.note = `Catatan maksimal ${L.note} karakter.`
+
+  const q = parseQuantityInput(input.quantityText, { allowFraction: true })
+  if (!q.ok) errors.quantity = q.message
+
+  if (Object.keys(errors).length > 0 || !q.ok) return { ok: false, errors }
+  return { ok: true, value: { name, unit, quantity: q.value, note: note === '' ? null : note } }
+}
+=== src/features/daftar/TextField.tsx
+import { inputClass } from '../../components/ui'
+
+export function TextField({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  inputMode,
+  multiline,
+  readOnly,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (v: string) => void
+  error?: string | undefined
+  hint?: string | undefined
+  inputMode?: 'text' | 'decimal' | 'numeric' | undefined
+  multiline?: boolean | undefined
+  readOnly?: boolean | undefined
+}) {
+  const describedBy = [hint ? `${id}-hint` : '', error ? `${id}-err` : ''].filter(Boolean).join(' ') || undefined
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-sm font-semibold">
+        {label}
+      </label>
+      {multiline ? (
+        <textarea
+          id={id}
+          rows={3}
+          value={value}
+          readOnly={readOnly}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputClass} py-2`}
+        />
+      ) : (
+        <input
+          id={id}
+          type="text"
+          inputMode={inputMode}
+          autoComplete="off"
+          value={value}
+          readOnly={readOnly}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          onChange={(e) => onChange(e.target.value)}
+          className={inputClass}
+        />
+      )}
+      {hint ? (
+        <p id={`${id}-hint`} className="text-xs text-ink/75">
+          {hint}
+        </p>
+      ) : null}
+      {error ? (
+        <p id={`${id}-err`} className="text-sm text-red-900">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+=== src/components/ui.ts
+const base =
+  'inline-flex min-h-12 cursor-pointer items-center justify-center rounded-md px-5 text-base font-medium disabled:cursor-not-allowed disabled:opacity-60';
+
+export const btnPrimary = `${base} bg-brand text-white hover:bg-brand-dark active:bg-brand-dark`;
+export const btnSecondary = `${base} bg-white text-ink ring-1 ring-black/25 hover:bg-black/5 active:bg-black/10`;
+export const inputClass =
+  'min-h-12 w-full rounded-md bg-white px-3 text-base ring-1 ring-black/30 placeholder:text-ink/50';
+=== src/features/daftar/AddArea.tsx
+import { useState, type ReactNode } from 'react'
+import { btnPrimary, btnSecondary } from '../../components/ui'
+import { AddCatalogForm } from './AddCatalogForm'
+import { AddManualForm } from './AddManualForm'
+import type { ListViewRow } from './listView'
+
+type Mode = 'closed' | 'catalog' | 'manual'
+
+function Panel({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="space-y-3 rounded-md bg-white p-4 ring-1 ring-black/20">
+      <h2 id={id} className="font-semibold">
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
+}
+
+export function AddArea({
+  workspaceId,
+  rows,
+  online,
+  onFeedback,
+}: {
+  workspaceId: string
+  rows: ListViewRow[]
+  online: boolean
+  onFeedback: (message: string) => void
+}) {
+  const [mode, setMode] = useState<Mode>('closed')
+  const done = (message: string) => {
+    setMode('closed')
+    onFeedback(message)
+  }
+
+  if (mode === 'catalog') {
+    return (
+      <Panel id="panel-katalog" title="Tambah dari katalog">
+        <AddCatalogForm
+          workspaceId={workspaceId}
+          rows={rows}
+          online={online}
+          onDone={done}
+          onCancel={() => setMode('closed')}
+        />
+      </Panel>
+    )
+  }
+  if (mode === 'manual') {
+    return (
+      <Panel id="panel-manual" title="Tambah barang manual">
+        <AddManualForm workspaceId={workspaceId} online={online} onDone={done} onCancel={() => setMode('closed')} />
+      </Panel>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={btnPrimary} onClick={() => setMode('catalog')} disabled={!online}>
+          Tambah dari katalog
+        </button>
+        <button type="button" className={btnSecondary} onClick={() => setMode('manual')} disabled={!online}>
+          Tambah barang manual
+        </button>
+      </div>
+      {!online ? (
+        <p className="text-sm">Anda sedang offline. Menambah, mengubah, dan menghapus barang memerlukan koneksi internet.</p>
+      ) : null}
+    </div>
+  )
+}
+=== src/features/daftar/AddCatalogForm.tsx
+import { useMemo, useState } from 'react'
+import { btnPrimary, btnSecondary } from '../../components/ui'
+import { formatRupiah } from '../../lib/money'
+import { useCatalog } from '../katalog/useCatalog'
+import { findHit, searchProducts } from './catalogSearch'
+import { formatQuantity } from './format'
+import type { ListViewRow } from './listView'
+import { OpNotice } from './OpNotice'
+import { addCatalogPayload } from './payloads'
+import { TextField } from './TextField'
+import { useListOp } from './useListOp'
+import { validateCatalogAddForm } from './validation'
+
+const RESULT_LIMIT = 8
+
+export function AddCatalogForm({
+  workspaceId,
+  rows,
+  online,
+  onDone,
+  onCancel,
+}: {
+  workspaceId: string
+  rows: ListViewRow[]
+  online: boolean
+  onDone: (message: string) => void
+  onCancel: () => void
+}) {
+  const { data } = useCatalog(workspaceId)
+  const op = useListOp(workspaceId)
+  const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [qtyText, setQtyText] = useState('1')
+  const [errors, setErrors] = useState<Partial<Record<'productId' | 'quantity', string>>>({})
+
+  const search = useMemo(() => (data ? searchProducts(data, query, RESULT_LIMIT) : null), [data, query])
+  const selected = data && selectedId ? findHit(data, selectedId) : null
+  const existing = selected ? rows.find((r) => r.productId === selected.id) : undefined
+
+  async function submit() {
+    if (!selected) return
+    const v = validateCatalogAddForm({
+      productId: selected.id,
+      quantityText: qtyText,
+      allowFraction: selected.allowFraction,
+    })
+    if (!v.ok) {
+      setErrors(v.errors)
+      return
+    }
+    setErrors({})
+    await op.run('add_catalog_to_list', addCatalogPayload(v.value.productId, v.value.quantity), (r) =>
+      onDone(
+        r.data.merged === true
+          ? `${selected.name}: jumlah digabung dengan barang yang sudah ada di daftar.`
+          : `${selected.name} ditambahkan ke daftar.`,
+      ),
+    )
+  }
+
+  if (!data || !search) return <p role="status">Memuat katalog dari perangkat...</p>
+
+  if (search.activeCount === 0) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm">
+          Katalog belum memiliki barang aktif. Admin perlu menambahkan barang di menu Katalog lebih dulu, atau
+          gunakan barang manual.
+        </p>
+        <button type="button" className={btnSecondary} onClick={onCancel}>
+          Tutup
+        </button>
+      </div>
+    )
+  }
+
+  if (!selected) {
+    return (
+      <div className="space-y-3">
+        <TextField id="cari-katalog" label="Cari barang di katalog" value={query} onChange={setQuery} />
+        {errors.productId ? <p className="text-sm text-red-900">{errors.productId}</p> : null}
+        {search.hits.length === 0 ? (
+          <p className="text-sm">Tidak ada barang aktif yang cocok dengan pencarian.</p>
+        ) : (
+          <ul className="space-y-2">
+            {search.hits.map((h) => (
+              <li key={h.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(h.id)}
+                  className="flex min-h-12 w-full cursor-pointer flex-col items-start rounded-md bg-white px-3 py-2 text-left ring-1 ring-black/25 hover:bg-black/5 active:bg-black/10"
+                >
+                  <span className="break-words font-semibold">{h.name}</span>
+                  <span className="text-sm">
+                    {h.unitName}
+                    {h.price !== null ? ` · ${formatRupiah(h.price)}` : ' · Harga belum tersedia'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {search.total > search.hits.length ? (
+          <p className="text-xs text-ink/75">
+            Menampilkan {search.hits.length} dari {search.total} barang. Persempit pencarian untuk melihat yang lain.
+          </p>
+        ) : null}
+        <button type="button" className={btnSecondary} onClick={onCancel}>
+          Batal
+        </button>
+      </div>
+    )
+  }
+
+  const locked = op.busy || op.pending
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+      className="space-y-3"
+    >
+      <div className="space-y-2 rounded-md bg-black/5 p-3">
+        <p className="break-words font-semibold">{selected.name}</p>
+        <p className="text-sm">
+          {selected.unitName}
+          {selected.price !== null ? ` · ${formatRupiah(selected.price)}` : ' · Harga belum tersedia'}
+        </p>
+        <button type="button" className={btnSecondary} onClick={() => setSelectedId(null)} disabled={locked}>
+          Ganti barang
+        </button>
+      </div>
+      <TextField
+        id="tambah-katalog-jumlah"
+        label="Jumlah"
+        value={qtyText}
+        onChange={setQtyText}
+        error={errors.quantity}
+        inputMode={selected.allowFraction ? 'decimal' : 'numeric'}
+        hint={
+          selected.allowFraction
+            ? 'Boleh berpecahan, maksimal 3 angka di belakang koma.'
+            : 'Satuan ini hanya menerima bilangan bulat.'
+        }
+        readOnly={locked}
+      />
+      {existing ? (
+        <p className="text-sm">
+          Barang ini sudah ada di daftar ({formatQuantity(existing.quantity)} {existing.unitName}). Jumlah yang Anda
+          masukkan akan digabung dengan jumlah tersebut.
+        </p>
+      ) : null}
+      <OpNotice error={op.error} pending={op.pending} busy={op.busy} onRetry={() => void op.retry()} onDiscard={op.discard} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={btnPrimary} disabled={locked || !online}>
+          {op.busy ? 'Menyimpan...' : 'Tambahkan ke daftar'}
+        </button>
+        <button type="button" className={btnSecondary} onClick={onCancel} disabled={locked}>
+          Batal
+        </button>
+      </div>
+      {!online ? <p className="text-sm">Anda sedang offline. Menambah barang memerlukan koneksi internet.</p> : null}
+    </form>
+  )
+}
+=== src/features/daftar/AddManualForm.tsx
+import { useState } from 'react'
+import { btnPrimary, btnSecondary } from '../../components/ui'
+import { OpNotice } from './OpNotice'
+import { setPendingPhoto } from './pendingPhotos'
+import { photoDeps } from './photoDeps'
+import { preparePhoto } from './photoFlow'
+import { addManualPayload } from './payloads'
+import { TextField } from './TextField'
+import { useListOp } from './useListOp'
+import { validateManualItemForm } from './validation'
+
+type FieldKey = 'name' | 'unit' | 'quantity' | 'note'
+
+export function AddManualForm({
+  workspaceId,
+  online,
+  onDone,
+  onCancel,
+}: {
+  workspaceId: string
+  online: boolean
+  onDone: (message: string) => void
+  onCancel: () => void
+}) {
+  const op = useListOp(workspaceId)
+  const [name, setName] = useState('')
+  const [qty, setQty] = useState('1')
+  const [unit, setUnit] = useState('')
+  const [note, setNote] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({})
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [preparing, setPreparing] = useState(false)
+  const locked = op.busy || preparing || op.pending
+
+  async function submit() {
+    const v = validateManualItemForm({ name, unit, quantityText: qty, note })
+    if (!v.ok) {
+      setErrors(v.errors)
+      return
+    }
+    setErrors({})
+    setPhotoError(null)
+
+    setPreparing(true)
+    const prep = await preparePhoto(photoDeps, workspaceId, file)
+    setPreparing(false)
+    if (prep.kind === 'invalid') {
+      setPhotoError(prep.message)
+      return
+    }
+
+    const id = crypto.randomUUID()
+    const photoPath = prep.kind === 'ready' ? prep.path : null
+    const later = prep.kind === 'upload_failed' ? prep : null
+    await op.run('list_add_manual', addManualPayload({ id, ...v.value, photoPath }), () => {
+      if (later) setPendingPhoto(id, { blob: later.blob, mime: later.mime })
+      onDone(
+        later
+          ? `${v.value.name} ditambahkan, tetapi fotonya belum terunggah. Gunakan tombol foto pada barang itu untuk mencoba lagi.`
+          : `${v.value.name} ditambahkan ke daftar.`,
+      )
+    })
+  }
+
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+      className="space-y-3"
+    >
+      <TextField id="manual-nama" label="Nama barang" value={name} onChange={setName} error={errors.name} readOnly={locked} />
+      <TextField
+        id="manual-jumlah"
+        label="Jumlah"
+        value={qty}
+        onChange={setQty}
+        error={errors.quantity}
+        inputMode="decimal"
+        hint="Boleh berpecahan, maksimal 3 angka di belakang koma."
+        readOnly={locked}
+      />
+      <TextField
+        id="manual-satuan"
+        label="Satuan"
+        value={unit}
+        onChange={setUnit}
+        error={errors.unit}
+        hint="Contoh: kg, pak, pcs."
+        readOnly={locked}
+      />
+      <TextField
+        id="manual-catatan"
+        label="Catatan (opsional)"
+        value={note}
+        onChange={setNote}
+        error={errors.note}
+        multiline
+        readOnly={locked}
+      />
+      <div className="space-y-1">
+        <label htmlFor="manual-foto" className="block text-sm font-semibold">
+          Foto (opsional)
+        </label>
+        <input
+          id="manual-foto"
+          type="file"
+          accept="image/*"
+          disabled={locked}
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="block w-full text-base file:mr-3 file:min-h-12 file:cursor-pointer file:rounded-md file:border-0 file:bg-white file:px-4 file:ring-1 file:ring-black/25"
+        />
+        <p className="text-xs text-ink/75">Barang manual tidak memiliki harga di daftar. Harga diisi saat belanja.</p>
+        {photoError ? <p className="text-sm text-red-900">{photoError}</p> : null}
+      </div>
+      <OpNotice error={op.error} pending={op.pending} busy={op.busy} onRetry={() => void op.retry()} onDiscard={op.discard} />
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={btnPrimary} disabled={locked || !online}>
+          {preparing ? 'Memproses foto...' : op.busy ? 'Menyimpan...' : 'Tambahkan ke daftar'}
+        </button>
+        <button type="button" className={btnSecondary} onClick={onCancel} disabled={locked}>
+          Batal
+        </button>
+      </div>
+      {!online ? <p className="text-sm">Anda sedang offline. Menambah barang memerlukan koneksi internet.</p> : null}
+    </form>
+  )
+}
+=== src/features/daftar/catalogSearch.ts
+import type { CatalogData } from '../katalog/types'
+
+export interface CatalogHit {
+  id: string
+  name: string
+  unitName: string
+  allowFraction: boolean
+  price: string | null
+}
+
+export interface SearchResult {
+  hits: CatalogHit[]
+  total: number
+  activeCount: number
+}
+
+function toHit(data: CatalogData, p: CatalogData['products'][number]): CatalogHit {
+  const unit = data.units.find((u) => u.id === p.unit_id)
+  return { id: p.id, name: p.name, unitName: unit?.name ?? '', allowFraction: unit?.allow_fraction ?? false, price: p.price }
+}
+
+// Hanya barang aktif yang dapat ditambahkan (FR-008). Pencarian dari data lokal (FR-007).
+export function searchProducts(data: CatalogData, query: string, limit: number): SearchResult {
+  const q = query.trim().toLowerCase()
+  const active = data.products.filter((p) => !p.is_archived)
+  const matched = (q === '' ? active : active.filter((p) => p.name.toLowerCase().includes(q))).sort(
+    (a, b) => a.name.localeCompare(b.name, 'id') || a.id.localeCompare(b.id),
+  )
+  return { hits: matched.slice(0, limit).map((p) => toHit(data, p)), total: matched.length, activeCount: active.length }
+}
+
+export function findHit(data: CatalogData, id: string): CatalogHit | null {
+  const p = data.products.find((x) => x.id === id && !x.is_archived)
+  return p ? toHit(data, p) : null
+}
+=== src/features/daftar/pendingPhotos.ts
+import { useSyncExternalStore } from 'react'
+
+export interface PendingPhoto {
+  blob: Blob
+  mime: string
+}
+
+// Hanya di memori: hilang bila halaman dimuat ulang. Tahap 6 memindahkannya ke antrean offline.
+const store = new Map<string, PendingPhoto>()
+const listeners = new Set<() => void>()
+const emit = () => listeners.forEach((l) => l())
+
+export function setPendingPhoto(itemId: string, photo: PendingPhoto): void {
+  store.set(itemId, photo)
+  emit()
+}
+
+export function clearPendingPhoto(itemId: string): void {
+  if (store.delete(itemId)) emit()
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export function usePendingPhoto(itemId: string): PendingPhoto | undefined {
+  return useSyncExternalStore(subscribe, () => store.get(itemId), () => undefined)
+}
+=== src/features/daftar/photoDeps.ts
+import { compressImage } from '../katalog/photoCompress'
+import { uploadProductPhoto } from '../katalog/photoUpload'
+import type { PhotoFlowDeps } from './photoFlow'
+
+export const photoDeps: PhotoFlowDeps = { compress: compressImage, upload: uploadProductPhoto }
+=== src/features/daftar/photoFlow.ts
+import type { CompressedPhoto } from '../katalog/photoCompress'
+import type { Result } from '../katalog/types'
+
+export interface PhotoFlowDeps {
+  compress: (file: File) => Promise<Result<CompressedPhoto>>
+  upload: (workspaceId: string, blob: Blob, mime: string) => Promise<Result<string>>
+}
+
+export type PhotoPrep =
+  | { kind: 'none' }
+  | { kind: 'ready'; path: string; blob: Blob; mime: string }
+  | { kind: 'upload_failed'; blob: Blob; mime: string; message: string }
+  | { kind: 'invalid'; message: string }
+
+// Unggah ke path baru lebih dulu; kegagalan unggah tidak membatalkan barangnya (FR-013, SYNC-019).
+export async function uploadPrepared(
+  deps: PhotoFlowDeps,
+  workspaceId: string,
+  blob: Blob,
+  mime: string,
+): Promise<PhotoPrep> {
+  const up = await deps.upload(workspaceId, blob, mime)
+  if (!up.ok) return { kind: 'upload_failed', blob, mime, message: up.error.message }
+  return { kind: 'ready', path: up.data, blob, mime }
+}
+
+export async function preparePhoto(deps: PhotoFlowDeps, workspaceId: string, file: File | null): Promise<PhotoPrep> {
+  if (!file) return { kind: 'none' }
+  const c = await deps.compress(file)
+  if (!c.ok) return { kind: 'invalid', message: c.error.message }
+  return uploadPrepared(deps, workspaceId, c.data.blob, c.data.mime)
+}
+=== src/features/daftar/photoUrlCache.ts
+export interface CacheEntry {
+  url: string
+  expiresAt: number
+}
+
+// URL bertanda tangan diambil ulang bila sisa umurnya kurang dari ini.
+export const REFRESH_MARGIN_MS = 5 * 60 * 1000
+
+export function needsFetch(cache: ReadonlyMap<string, CacheEntry>, paths: string[], now: number): string[] {
+  const out: string[] = []
+  for (const p of new Set(paths)) {
+    const e = cache.get(p)
+    if (!e || e.expiresAt - now <= REFRESH_MARGIN_MS) out.push(p)
+  }
+  return out
+}
+
+export function snapshotUrls(
+  cache: ReadonlyMap<string, CacheEntry>,
+  paths: string[],
+  now: number,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const p of paths) {
+    const e = cache.get(p)
+    if (e && e.expiresAt > now) out[p] = e.url
+  }
+  return out
+}
+=== src/features/daftar/photoUrls.ts
+import { useEffect, useMemo, useState } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { supabase } from '../../lib/supabase'
+import { needsFetch, snapshotUrls, type CacheEntry } from './photoUrlCache'
+
+// Sama dengan nama bucket di photoUpload.ts.
+const BUCKET = 'kps-photos'
+const TTL_SECONDS = 3600
+const sb = supabase as unknown as SupabaseClient | null
+const cache = new Map<string, CacheEntry>()
+
+// refreshKey berubah setelah sinkronisasi, supaya foto yang gagal saat offline dicoba lagi.
+export function usePhotoUrls(paths: string[], refreshKey: string | null): Record<string, string> {
+  const key = useMemo(() => Array.from(new Set(paths)).sort().join('|'), [paths])
+  const [version, setVersion] = useState(0)
+
+  useEffect(() => {
+    if (!sb || key === '') return undefined
+    const missing = needsFetch(cache, key.split('|'), Date.now())
+    if (missing.length === 0) return undefined
+    let cancelled = false
+    void (async () => {
+      try {
+        const { data, error } = await sb.storage.from(BUCKET).createSignedUrls(missing, TTL_SECONDS)
+        if (error || !data || cancelled) return
+        const expiresAt = Date.now() + TTL_SECONDS * 1000
+        for (const row of data) {
+          if (row.path && row.signedUrl && !row.error) cache.set(row.path, { url: row.signedUrl, expiresAt })
+        }
+        setVersion((v) => v + 1)
+      } catch {
+        // offline atau gagal: kartu menampilkan placeholder
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [key, refreshKey])
+
+  // version memicu hitung ulang setelah cache terisi.
+  return useMemo(() => snapshotUrls(cache, key === '' ? [] : key.split('|'), Date.now()), [key, version])
+}
+=== src/features/katalog/photo.ts
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+
+const BUCKET = 'kps-photos'
+const TTL_SECONDS = 3600
+const REFRESH_MARGIN_MS = 60_000
+
+const cache = new Map<string, { url: string; expiresAt: number }>()
+
+function peek(path: string): string | null {
+  const hit = cache.get(path)
+  return hit && hit.expiresAt - Date.now() > REFRESH_MARGIN_MS ? hit.url : null
+}
+
+// Bucket privat: setiap tampilan memakai URL bertanda tangan berumur 1 jam.
+export async function getSignedPhotoUrl(path: string): Promise<string> {
+  const cached = peek(path)
+  if (cached) return cached
+  if (!supabase) throw new Error('Supabase belum dikonfigurasi.')
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, TTL_SECONDS)
+  if (error || !data) throw error ?? new Error('URL foto tidak tersedia.')
+  cache.set(path, { url: data.signedUrl, expiresAt: Date.now() + TTL_SECONDS * 1000 })
+  return data.signedUrl
+}
+
+// Dipanggil saat keluar agar URL akun lama tidak tersisa di memori.
+export function clearPhotoUrlCache() {
+  cache.clear()
+}
+
+export type PhotoState =
+  | { kind: 'none' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; url: string }
+  | { kind: 'offline' }
+  | { kind: 'error' }
+
+export function usePhotoUrl(path: string | null) {
+  const [attempt, setAttempt] = useState(0)
+  const [state, setState] = useState<PhotoState>({ kind: path ? 'loading' : 'none' })
+
+  useEffect(() => {
+    if (!path) {
+      setState({ kind: 'none' })
+      return undefined
+    }
+    const cached = peek(path)
+    if (cached) {
+      setState({ kind: 'ready', url: cached })
+      return undefined
+    }
+    let cancelled = false
+    setState({ kind: 'loading' })
+    getSignedPhotoUrl(path)
+      .then((url) => {
+        if (!cancelled) setState({ kind: 'ready', url })
+      })
+      .catch(() => {
+        if (!cancelled) setState({ kind: navigator.onLine ? 'error' : 'offline' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [path, attempt])
+
+  useEffect(() => {
+    const retryOnline = () => setAttempt((n) => n + 1)
+    window.addEventListener('online', retryOnline)
+    return () => window.removeEventListener('online', retryOnline)
+  }, [])
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
+  // Gambar gagal dimuat biasanya karena URL kedaluwarsa atau offline.
+  const reportImageError = useCallback(() => {
+    if (path) cache.delete(path)
+    setState({ kind: navigator.onLine ? 'error' : 'offline' })
+  }, [path])
+
+  return { state, retry, reportImageError }
+}
+=== src/features/katalog/photoCompress.ts
+import {
+  MAX_BYTES,
+  dimensionsFor,
+  firstStep,
+  isAcceptable,
+  isWithinLimit,
+  nextStep,
+} from './photoPlan'
+import type { Result } from './types'
+
+export interface CompressedPhoto {
+  blob: Blob
+  mime: 'image/webp' | 'image/jpeg'
+}
+
+interface Decoded {
+  source: CanvasImageSource
+  width: number
+  height: number
+  release: () => void
+}
+
+async function decode(file: Blob): Promise<Decoded> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close() }
+    } catch {
+      /* lanjut ke jalur Image */
+    }
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const img = new Image()
+    img.src = url
+    await img.decode()
+    return { source: img, width: img.naturalWidth, height: img.naturalHeight, release: () => undefined }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function encode(canvas: HTMLCanvasElement, mime: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, mime, quality))
+}
+
+// Kompres di perangkat: sisi terpanjang 1600 px, JPEG atau WebP, target sekitar 200 KB (FR-013).
+// Bagian kanvas ini diuji manual; hitungannya ada di photoPlan.ts.
+export async function compressImage(file: File): Promise<Result<CompressedPhoto>> {
+  let decoded: Decoded
+  try {
+    decoded = await decode(file)
+  } catch {
+    return { ok: false, error: { code: 'PHOTO_UNREADABLE', message: 'Berkas ini bukan gambar yang dapat dibaca.' } }
+  }
+
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    decoded.release()
+    return { ok: false, error: { code: 'PHOTO_NO_CANVAS', message: 'Perangkat tidak dapat memproses gambar.' } }
+  }
+
+  let mime: 'image/webp' | 'image/jpeg' = 'image/webp'
+  let best: CompressedPhoto | null = null
+  try {
+    for (let step = firstStep(); ; ) {
+      const { width, height } = dimensionsFor(decoded.width, decoded.height, step.scale)
+      canvas.width = width
+      canvas.height = height
+      // Latar putih agar piksel transparan tidak menjadi hitam pada JPEG.
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(decoded.source, 0, 0, width, height)
+
+      let blob = await encode(canvas, mime, step.quality)
+      // Browser yang tidak bisa menyandikan WebP mengembalikan PNG; beralih ke JPEG.
+      if (blob && mime === 'image/webp' && blob.type !== 'image/webp') {
+        mime = 'image/jpeg'
+        blob = await encode(canvas, mime, step.quality)
+      }
+      if (!blob) {
+        return { ok: false, error: { code: 'PHOTO_ENCODE', message: 'Foto gagal diproses.' } }
+      }
+      if (!best || blob.size < best.blob.size) best = { blob, mime }
+      if (isAcceptable(blob.size)) break
+      const next = nextStep(step)
+      if (!next) break
+      step = next
+    }
+  } finally {
+    decoded.release()
+    canvas.width = 0
+    canvas.height = 0
+  }
+
+  if (!best || !isWithinLimit(best.blob.size)) {
+    return {
+      ok: false,
+      error: {
+        code: 'PHOTO_TOO_LARGE',
+        message: `Foto tetap lebih besar dari ${Math.round(MAX_BYTES / 1024)} KB setelah dikompres. Pilih foto lain.`,
+      },
+    }
+  }
+  return { ok: true, data: best }
+}
+=== src/features/katalog/photoPlan.ts
+// Logika murni untuk foto: ukuran, urutan percobaan kompresi, path, dan pesan galat (FR-013).
+
+export const MAX_SIDE = 1600
+export const TARGET_BYTES = 200 * 1024
+// Toleransi 10 persen di atas target sebelum mencoba kualitas lebih rendah.
+export const ACCEPT_BYTES = Math.round(TARGET_BYTES * 1.1)
+// Sama dengan file_size_limit bucket kps-photos.
+export const MAX_BYTES = 614_400
+export const QUALITY_STEPS = [0.85, 0.75, 0.65, 0.55, 0.45, 0.35] as const
+export const MIN_SCALE = 0.4
+
+export interface Dimensions {
+  width: number
+  height: number
+}
+
+export function fitWithin(width: number, height: number, max: number = MAX_SIDE): Dimensions {
+  const longest = Math.max(width, height)
+  const ratio = longest > max ? max / longest : 1
+  return {
+    width: Math.max(1, Math.round(width * ratio)),
+    height: Math.max(1, Math.round(height * ratio)),
+  }
+}
+
+export function dimensionsFor(width: number, height: number, scale: number): Dimensions {
+  const base = fitWithin(width, height)
+  return {
+    width: Math.max(1, Math.round(base.width * scale)),
+    height: Math.max(1, Math.round(base.height * scale)),
+  }
+}
+
+export interface Step {
+  quality: number
+  scale: number
+}
+
+export const firstStep = (): Step => ({ quality: QUALITY_STEPS[0], scale: 1 })
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+// Turunkan kualitas dulu; bila habis, kecilkan dimensi 15 persen dan ulangi dari kualitas kedua.
+export function nextStep(step: Step): Step | null {
+  const qualities: readonly number[] = QUALITY_STEPS
+  const i = qualities.indexOf(step.quality)
+  if (i >= 0 && i < qualities.length - 1) return { quality: qualities[i + 1], scale: step.scale }
+  const scale = round2(step.scale * 0.85)
+  return scale < MIN_SCALE ? null : { quality: qualities[1], scale }
+}
+
+export const isAcceptable = (bytes: number) => bytes <= ACCEPT_BYTES
+export const isWithinLimit = (bytes: number) => bytes <= MAX_BYTES
+
+export function extensionFor(mime: string): 'webp' | 'jpg' {
+  return mime === 'image/webp' ? 'webp' : 'jpg'
+}
+
+// Path baru setiap unggahan: <workspace_id>/<uuid>.<ekstensi>, huruf kecil (FR-013).
+export function newPhotoPath(
+  workspaceId: string,
+  mime: string,
+  uuid: () => string = () => crypto.randomUUID(),
+): string {
+  return `${workspaceId.toLowerCase()}/${uuid().toLowerCase()}.${extensionFor(mime)}`
+}
+
+export function describeUploadError(e: { message?: string; statusCode?: string | number } | null): string {
+  const text = `${e?.message ?? ''} ${e?.statusCode ?? ''}`
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(text)) {
+    return 'Tidak ada koneksi internet.'
+  }
+  if (/exceeded|too large|payload|413/i.test(text)) return 'Foto melebihi batas 600 KB.'
+  if (/mime|content.?type|not supported|415/i.test(text)) return 'Jenis berkas tidak diizinkan, hanya JPEG atau WebP.'
+  if (/row-level security|unauthorized|not authorized|forbidden|403|401/i.test(text)) {
+    return 'Anda tidak berhak mengunggah foto, atau sesi login berakhir.'
+  }
+  if (/already exists|duplicate|409/i.test(text)) return 'Berkas dengan nama itu sudah ada. Coba lagi.'
+  return 'Foto gagal diunggah. Coba lagi beberapa saat.'
+}
+=== src/features/katalog/photoUpload.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { supabase } from '../../lib/supabase'
+import { isOnline } from './catalogStore'
+import { describeUploadError, newPhotoPath } from './photoPlan'
+import type { Result } from './types'
+
+const BUCKET = 'kps-photos'
+const sb = supabase as unknown as SupabaseClient | null
+
+// Selalu path baru dan tanpa upsert: berkas yang dirujuk snapshot tidak boleh tertimpa (BR-027).
+export async function uploadProductPhoto(workspaceId: string, blob: Blob, mime: string): Promise<Result<string>> {
+  if (!isOnline()) {
+    return { ok: false, error: { code: 'OFFLINE', message: 'Mengunggah foto memerlukan koneksi internet.' } }
+  }
+  if (!sb) {
+    return { ok: false, error: { code: 'NO_CLIENT', message: 'Supabase belum dikonfigurasi.' } }
+  }
+  const path = newPhotoPath(workspaceId, mime)
+  try {
+    const { error } = await sb.storage
+      .from(BUCKET)
+      .upload(path, blob, { contentType: mime, upsert: false, cacheControl: '31536000' })
+    if (error) {
+      return {
+        ok: false,
+        error: { code: 'UPLOAD_FAILED', message: describeUploadError(error as { message?: string }) },
+      }
+    }
+    return { ok: true, data: path }
+  } catch (e) {
+    return {
+      ok: false,
+      error: { code: 'UPLOAD_FAILED', message: describeUploadError(e as { message?: string }) },
+    }
+  }
+}
